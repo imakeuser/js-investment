@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JS Investment - 최신 투자 현황 및 자산 추이</title>
+  
+  <!-- Fonts & CDN Libraries -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Chart.js, DataLabels & SheetJS (xlsx) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <div class="brand">
+        <div class="brand-icon">JS</div>
+        <div>
+          <h1 class="brand-title">JS Investment</h1>
+          <p class="brand-subtitle">통합 자산 현황 및 시계열 변화 분석 대시보드</p>
+        </div>
+      </div>
+      
+      <div class="header-status">
+        <span class="active-snapshot-badge" id="headerActiveSnapshotBadge">
+          <i data-lucide="calendar"></i> 현재 스냅샷: <strong id="headerActiveDateText">2026.09.12 (최신)</strong>
+        </span>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs Bar (4 Tab Order) -->
+    <nav class="nav-tabs-bar">
+      <div class="nav-tabs">
+        <button class="nav-tab active" data-tab="tab-overview">
+          <i data-lucide="layout-dashboard"></i> 통합 투자 현황
+        </button>
+        <button class="nav-tab" data-tab="tab-accounts">
+          <i data-lucide="pie-chart"></i> 계좌별 자산 분석
+        </button>
+        <button class="nav-tab" data-tab="tab-holdings">
+          <i data-lucide="table"></i> 보유 종목 상세데이터
+        </button>
+        <button class="nav-tab" data-tab="tab-snapshots">
+          <i data-lucide="history"></i> 투자 스냅샷
+        </button>
+      </div>
+    </nav>
+
+    <!-- TAB 1: 통합 투자 현황 (첫 페이지 Overview) -->
+    <div id="tab-overview" class="tab-content active">
+      <!-- Top KPI Summary Cards -->
+      <div class="kpi-grid">
+        <div class="kpi-card" id="kpiTotalEvalCard">
+          <div class="kpi-header">
+            <span class="kpi-label">총 자산 평가금액</span>
+            <div class="kpi-icon"><i data-lucide="wallet"></i></div>
+          </div>
+          <div class="kpi-value" id="kpiTotalEval">- 원</div>
+          <div class="kpi-sub" id="kpiTotalEvalSub">
+            <span class="badge-trend up" id="kpiEvalTrend">전월 대비 --</span>
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-label">총 매수 투자금액</span>
+            <div class="kpi-icon"><i data-lucide="credit-card"></i></div>
+          </div>
+          <div class="kpi-value" id="kpiTotalBuy">- 원</div>
+          <div class="kpi-sub" id="kpiTotalBuySub">
+            <span style="color: var(--text-muted);">총 원금 자산</span>
+          </div>
+        </div>
+
+        <div class="kpi-card" id="kpiProfitCard">
+          <div class="kpi-header">
+            <span class="kpi-label">총 평가손익</span>
+            <div class="kpi-icon"><i data-lucide="trending-up"></i></div>
+          </div>
+          <div class="kpi-value" id="kpiTotalProfit">- 원</div>
+          <div class="kpi-sub" id="kpiTotalProfitSub">
+            <span class="badge-trend" id="kpiProfitBadge">수익 -</span>
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-label">전체 수익률</span>
+            <div class="kpi-icon"><i data-lucide="percent"></i></div>
+          </div>
+          <div class="kpi-value" id="kpiReturnRate">0.00%</div>
+          <div class="kpi-sub">
+            <span style="color: var(--text-muted);" id="kpiReturnRateSub">원금 대비 수익 비율</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Overall Trend Charts Section -->
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-header">
+            <h2 class="chart-title"><i data-lucide="line-chart" style="color: var(--primary);"></i> 전체 자산 및 손익 시계열 변화 추이</h2>
+          </div>
+          <div class="chart-container">
+            <canvas id="trendLineChart"></canvas>
+          </div>
+        </div>
+
+        <div class="chart-card">
+          <div class="chart-header">
+            <h2 class="chart-title"><i data-lucide="pie-chart" style="color: var(--accent-cyan);"></i> 계좌별 자산 비중 (%)</h2>
+          </div>
+          <div class="chart-container">
+            <canvas id="accountPieChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Accounts Vertical List Section (Page 1 Top-to-Bottom with Individual Charts) -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px;">
+        <h2 class="section-title" style="margin-bottom: 0;">
+          <i data-lucide="layers" style="color: var(--primary);"></i> 계좌별 최신 현황 및 개별 시계열 추이
+        </h2>
+        <span style="font-size: 13px; color: var(--text-muted);">
+          위에서 아래로 개별 계좌별 자산 변화 그래프 포함
+        </span>
+      </div>
+
+      <div class="accounts-row-list" id="accountsRowList">
+        <!-- Rendered dynamically by JS (Vertical Cards with Individual Line Charts) -->
+      </div>
+    </div>
+
+    <!-- TAB 2: 계좌별 자산 분석 (Account Analysis) -->
+    <div id="tab-accounts" class="tab-content">
+      <div class="chart-card" style="margin-bottom: 24px;">
+        <div class="chart-header">
+          <h2 class="chart-title"><i data-lucide="bar-chart-3" style="color: var(--primary);"></i> 계좌별 자산 및 평가손익 현황</h2>
+        </div>
+        <div class="chart-container" style="height: 360px;">
+          <canvas id="accountBarChart"></canvas>
+        </div>
+      </div>
+
+      <h2 class="section-title"><i data-lucide="layers" style="color: var(--primary);"></i> 계좌별 카드 상세 분석</h2>
+      <div class="accounts-grid" id="accountsGridTab3">
+        <!-- Dynamic account cards for Tab 2 -->
+      </div>
+    </div>
+
+    <!-- TAB 3: 보유 종목 상세데이터 (Holdings Detail) -->
+    <div id="tab-holdings" class="tab-content">
+      <!-- Holdings KPI Quick Summary -->
+      <div class="kpi-grid" style="margin-bottom: 20px;">
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-label">조회된 종목 수</span>
+            <div class="kpi-icon"><i data-lucide="package"></i></div>
+          </div>
+          <div class="kpi-value" id="holdingsCount">0개</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-label">보유 종목 합계 평가액</span>
+            <div class="kpi-icon"><i data-lucide="coins"></i></div>
+          </div>
+          <div class="kpi-value" id="holdingsTotalEval">0원</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-label">최고 수익 종목</span>
+            <div class="kpi-icon" style="color: var(--profit-green);"><i data-lucide="arrow-up-right"></i></div>
+          </div>
+          <div class="kpi-value" id="topGainItem" style="font-size: 20px; font-weight: 700;">-</div>
+          <div class="kpi-sub" id="topGainValue" style="color: var(--profit-green);">-</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-label">최저 손실 종목</span>
+            <div class="kpi-icon" style="color: var(--loss-red);"><i data-lucide="arrow-down-right"></i></div>
+          </div>
+          <div class="kpi-value" id="topLossItem" style="font-size: 20px; font-weight: 700;">-</div>
+          <div class="kpi-sub" id="topLossValue" style="color: var(--loss-red);">-</div>
+        </div>
+      </div>
+
+      <!-- Stock Detail Table Card -->
+      <div class="table-card">
+        <div class="table-toolbar">
+          <h2 class="chart-title" style="font-size: 18px;">
+            <i data-lucide="list-filter" style="color: var(--primary);"></i> 보유 종목 상세 데이터 목록
+          </h2>
+          
+          <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+            <div class="search-box">
+              <i data-lucide="search" style="color: var(--text-muted); width: 18px;"></i>
+              <input type="text" id="searchInput" placeholder="종목명 또는 계좌 검색...">
+            </div>
+
+            <select class="select-filter" id="accountFilterSelect">
+              <option value="ALL">전체 계좌 보기</option>
+            </select>
+
+            <select class="select-filter" id="sortBySelect">
+              <option value="account-asc">계좌순</option>
+              <option value="eval-desc">평가금액 높은순</option>
+              <option value="profit-desc">평가손익 높은순</option>
+              <option value="profit-asc">평가손익 낮은순</option>
+              <option value="return-desc">수익률 높은순</option>
+            </select>
+
+            <button class="btn-select-snap" onclick="window.resetHoldingsFilter()" style="display: flex; align-items: center; gap: 6px;" title="필터 초기화">
+              <i data-lucide="rotate-ccw" style="width: 14px; height: 14px;"></i> 초기화
+            </button>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>계좌명 / 계좌번호</th>
+                <th>종목명</th>
+                <th class="num-col">잔고수량</th>
+                <th class="num-col">현재가</th>
+                <th class="num-col">매수금액</th>
+                <th class="num-col">평가금액</th>
+                <th class="num-col">평가손익</th>
+                <th class="num-col">수익률</th>
+              </tr>
+            </thead>
+            <tbody id="stockTableBody">
+              <!-- Dynamic rows rendered by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 4: 투자 스냅샷 (Investment Snapshots & Excel Manager) -->
+    <div id="tab-snapshots" class="tab-content">
+      <div class="table-card" style="margin-bottom: 24px;">
+        <div class="table-toolbar">
+          <div>
+            <h2 class="chart-title" style="font-size: 20px;">
+              <i data-lucide="history" style="color: var(--primary);"></i> 투자 스냅샷 선택 및 관리
+            </h2>
+            <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+              원하는 날짜의 스냅샷 버튼을 클릭하여 보유종목 상세데이터의 스냅샷 기준 날짜를 변경하세요.
+            </p>
+          </div>
+          
+          <button class="btn-upload" id="tabSnapshotUploadBtn">
+            <i data-lucide="plus-circle"></i> 엑셀 파일 추가 (+업로드)
+          </button>
+        </div>
+
+        <!-- Date Snapshot Buttons Group -->
+        <div class="snapshot-buttons-panel" style="margin-bottom: 24px;">
+          <label class="kpi-label" style="display: block; margin-bottom: 10px;">등록된 스냅샷 날짜 선택:</label>
+          <div class="date-selector-wrapper" id="dateSelectorGroup" style="padding: 6px; gap: 8px; flex-wrap: wrap;">
+            <!-- Dynamic Date Buttons rendered by JS -->
+          </div>
+        </div>
+
+        <!-- Embedded File Dropzone -->
+        <div class="dropzone" id="fileDropzoneTab" style="margin-bottom: 24px;">
+          <i data-lucide="upload-cloud" class="dropzone-icon"></i>
+          <div class="dropzone-text">클릭하거나 엑셀 파일(spop_*.xlsx)을 이곳에 드래그하세요</div>
+          <div class="dropzone-hint">삼성증권 SPOP 또는 포트폴리오 엑셀 양식 지원</div>
+          <input type="file" id="excelFileInputTab" accept=".xlsx, .xls" style="display: none;">
+        </div>
+
+        <!-- Registered Snapshots List Table -->
+        <h3 class="chart-title" style="font-size: 16px; margin-bottom: 14px;">
+          <i data-lucide="database" style="color: var(--accent-cyan);"></i> 등록된 전체 스냅샷 히스토리 목록
+        </h3>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>스냅샷 날짜</th>
+                <th>타임스탬프 / 출처</th>
+                <th class="num-col">총 매수금액</th>
+                <th class="num-col">총 평가금액</th>
+                <th class="num-col">총 평가손익</th>
+                <th class="num-col">수익률</th>
+                <th style="text-align: center;">상태 / 관리</th>
+              </tr>
+            </thead>
+            <tbody id="snapshotsHistoryTableBody">
+              <!-- Rendered dynamically by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Excel Upload Modal -->
+  <div class="modal-overlay" id="uploadModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">새로운 엑셀 데이터 추가</h3>
+        <button class="modal-close" id="closeUploadModalBtn">&times;</button>
+      </div>
+      <div class="dropzone" id="fileDropzone">
+        <i data-lucide="upload-cloud" class="dropzone-icon"></i>
+        <div class="dropzone-text">클릭하거나 엑셀 파일(spop_*.xlsx)을 드래그하세요</div>
+        <div class="dropzone-hint">삼성증권 SPOP 또는 포트폴리오 엑셀 양식 지원</div>
+        <input type="file" id="excelFileInput" accept=".xlsx, .xls" style="display: none;">
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    // Initialize Lucide Icons
+    lucide.createIcons();
+  </script>
+</body>
+</html>
