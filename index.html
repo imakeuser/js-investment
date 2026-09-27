@@ -18,7 +18,7 @@
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
   
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20260923_01">
 </head>
 <body>
   <div class="container">
@@ -36,22 +36,34 @@
         <span class="active-snapshot-badge" id="headerActiveSnapshotBadge">
           <i data-lucide="calendar"></i> 현재 스냅샷: <strong id="headerActiveDateText">2026.09.12 (최신)</strong>
         </span>
+        <button id="btnOpenSettings" class="btn-settings-header" title="시스템 환경 설정" aria-label="환경 설정">
+          <i data-lucide="settings"></i>
+        </button>
       </div>
     </header>
+
+    <!-- DB Status Notification Banner -->
+    <div id="dbStatusNotice" class="db-status-notice warning" style="display: none;"></div>
 
     <!-- Navigation Tabs Bar (4 Tab Order) -->
     <nav class="nav-tabs-bar">
       <div class="nav-tabs">
-        <button class="nav-tab active" data-tab="tab-overview">
+        <button class="nav-tab active" data-tab="tab-overview" onclick="switchTab('tab-overview')">
           <i data-lucide="layout-dashboard"></i> 통합 투자 현황
         </button>
-        <button class="nav-tab" data-tab="tab-accounts">
+        <button class="nav-tab" data-tab="tab-monthly-performance" onclick="switchTab('tab-monthly-performance')">
+          <i data-lucide="bar-chart-2"></i> 월별 투자성과
+        </button>
+        <button class="nav-tab" data-tab="tab-accounts" onclick="switchTab('tab-accounts')">
           <i data-lucide="pie-chart"></i> 계좌별 자산 분석
         </button>
-        <button class="nav-tab" data-tab="tab-holdings">
+        <button class="nav-tab" data-tab="tab-holdings" onclick="switchTab('tab-holdings')">
           <i data-lucide="table"></i> 보유 종목 상세데이터
         </button>
-        <button class="nav-tab" data-tab="tab-snapshots">
+        <button class="nav-tab" data-tab="tab-stock-analysis" onclick="switchTab('tab-stock-analysis')">
+          <i data-lucide="line-chart"></i> 주가분석
+        </button>
+        <button class="nav-tab" data-tab="tab-snapshots" onclick="switchTab('tab-snapshots')">
           <i data-lucide="history"></i> 투자 스냅샷
         </button>
       </div>
@@ -139,6 +151,159 @@
 
       <div class="accounts-row-list" id="accountsRowList">
         <!-- Rendered dynamically by JS (Vertical Cards with Individual Line Charts) -->
+      </div>
+    </div>
+
+    <!-- TAB: 월별 투자성과 현황 (Monthly Investment Performance & Long-term Analytics) -->
+    <div id="tab-monthly-performance" class="tab-content">
+      <!-- Section Title & Subtitle Banner -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 14px;">
+        <div>
+          <h2 class="section-title" style="margin-bottom: 4px; display: flex; align-items: center; gap: 10px;">
+            <i data-lucide="bar-chart-2" style="color: var(--primary);"></i> 월별 투자성과 현황분석
+          </h2>
+          <p style="font-size: 13px; color: var(--text-muted);">
+            월별투자성과현황(spop_db/월별투자성과현황_2609.xlsx) 108개월 시계열 자산 평가금액, 월별 투자손익 및 수익률 종합 추이
+          </p>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <button id="btnMpReloadData" type="button" class="btn-select-snap" style="display: flex; align-items: center; gap: 6px; padding: 8px 14px;">
+            <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> 엑셀 데이터 새로고침
+          </button>
+        </div>
+      </div>
+
+      <!-- Top KPI Summary Cards (4 Grid Cards) -->
+      <div class="kpi-grid" style="margin-bottom: 24px;">
+        <div class="kpi-card" id="mpKpiCardCurrentEval">
+          <div class="kpi-header">
+            <span class="kpi-label">최신 기말 평가금액</span>
+            <div class="kpi-icon"><i data-lucide="wallet"></i></div>
+          </div>
+          <div class="kpi-value" id="mpKpiCurrentEval">- 원</div>
+          <div class="kpi-sub" id="mpKpiCurrentEvalSub">
+            <span class="badge-trend up" id="mpKpiEvalTrend">전월 대비 --</span>
+          </div>
+        </div>
+
+        <div class="kpi-card" id="mpKpiCardCumProfit">
+          <div class="kpi-header">
+            <span class="kpi-label">총 누적 투자손익</span>
+            <div class="kpi-icon"><i data-lucide="trending-up"></i></div>
+          </div>
+          <div class="kpi-value" id="mpKpiCumProfit">- 원</div>
+          <div class="kpi-sub" id="mpKpiCumProfitSub">
+            <span class="badge-trend up" id="mpKpiProfitBadge">누적 수익 -</span>
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-label">누적 순투입 원금 (입출금)</span>
+            <div class="kpi-icon"><i data-lucide="credit-card"></i></div>
+          </div>
+          <div class="kpi-value" id="mpKpiNetCapital">- 원</div>
+          <div class="kpi-sub">
+            <span style="color: var(--text-muted);" id="mpKpiNetCapitalSub">순입금 합계 (입금 - 출금)</span>
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-label">최고 수익월 / 최다 손실월</span>
+            <div class="kpi-icon"><i data-lucide="award"></i></div>
+          </div>
+          <div class="kpi-value" id="mpKpiBestMonth" style="font-size: 17px; font-weight: 700; color: var(--profit-green);">-</div>
+          <div class="kpi-sub" id="mpKpiWorstMonth" style="color: var(--loss-red); font-size: 13px;">-</div>
+        </div>
+      </div>
+
+      <!-- Filter & Controls Toolbar -->
+      <div class="table-card" style="margin-bottom: 24px; padding: 16px 20px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;">
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+            <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">조회 기간:</span>
+            <div class="mp-period-group" id="mpPeriodButtonGroup">
+              <button type="button" class="mp-period-btn active" data-period="ALL">전체 (108개월)</button>
+              <button type="button" class="mp-period-btn" data-period="1Y">최근 1년</button>
+              <button type="button" class="mp-period-btn" data-period="3Y">최근 3년</button>
+              <button type="button" class="mp-period-btn" data-period="5Y">최근 5년</button>
+            </div>
+            
+            <select class="select-filter" id="mpYearSelect" style="padding: 6px 12px; font-size: 13px;">
+              <option value="ALL">연도 전체 선택</option>
+              <option value="2026">2026년</option>
+              <option value="2025">2025년</option>
+              <option value="2024">2024년</option>
+              <option value="2023">2023년</option>
+              <option value="2022">2022년</option>
+              <option value="2021">2021년</option>
+              <option value="2020">2020년</option>
+              <option value="2019">2019년</option>
+              <option value="2018">2018년</option>
+              <option value="2017">2017년</option>
+            </select>
+          </div>
+
+          <div style="font-size: 13px; color: var(--text-muted); font-weight: 600;" id="mpPeriodSummaryText">
+            총 108개월 데이터 표시 중
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts Grid -->
+      <div class="charts-grid" style="grid-template-columns: 1fr 1fr; margin-bottom: 24px;">
+        <!-- Chart 1: 자산 평가금액 & 누적 손익 추이 -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <h2 class="chart-title">
+              <i data-lucide="line-chart" style="color: var(--primary);"></i> 자산 평가금액 & 누적 손익 시계열 추이
+            </h2>
+          </div>
+          <div class="chart-container" style="height: 380px;">
+            <canvas id="mpAssetTrendChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Chart 2: 월별 투자손익 & 수익률 콤보 차트 -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <h2 class="chart-title">
+              <i data-lucide="bar-chart-3" style="color: var(--accent-cyan);"></i> 월별 투자손익(원) & 월간 수익률(%)
+            </h2>
+          </div>
+          <div class="chart-container" style="height: 380px;">
+            <canvas id="mpPnlComboChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Yearly Performance Summary Table Card -->
+      <div class="table-card" style="margin-bottom: 24px;">
+        <div class="table-toolbar">
+          <h2 class="chart-title" style="font-size: 18px;">
+            <i data-lucide="calendar" style="color: var(--primary);"></i> 연도별 투자 성과 종합 분석 (2017년 ~ 2026년)
+          </h2>
+          <span style="font-size: 13px; color: var(--text-muted);">연도별 누적 자산, 손익 및 승률 통계</span>
+        </div>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>연도</th>
+                <th class="num-col">기말 평가금액</th>
+                <th class="num-col">연간 총 손익</th>
+                <th class="num-col">연간 누적 수익률</th>
+                <th class="num-col">연간 순입출금</th>
+                <th style="text-align: center;">월별 승률 (수익월 / 전체)</th>
+              </tr>
+            </thead>
+            <tbody id="mpYearlyTableBody">
+              <!-- Rendered dynamically by JS -->
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -248,7 +413,256 @@
       </div>
     </div>
 
-    <!-- TAB 4: 투자 스냅샷 (Investment Snapshots & Excel Manager) -->
+    <!-- TAB 4: 주가분석 (Stock Price & Similarity Analysis) -->
+    <div id="tab-stock-analysis" class="tab-content">
+      <!-- Unified Query Settings & Stock Multi-Select Panel (조회 조건 및 분석 종목 설정) -->
+      <div class="table-card" style="margin-bottom: 20px; padding: 18px 20px; background: rgba(15, 23, 42, 0.75); border: 1px solid var(--border-card-bright);">
+        <!-- Part 1: Period & Interval Settings -->
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; padding-bottom: 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <button id="btnSaRefreshStocksHeader" type="button" class="btn-refresh-stocks-icon" title="보유종목 최신 갱신 및 KRX 티커 매칭">
+              <i data-lucide="refresh-cw"></i>
+            </button>
+            <div>
+              <h3 style="font-size: 16px; font-weight: 800; color: #ffffff;">조회 시작 기간 및 분석 조건 설정</h3>
+              <p style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">시작 년/월, 분석 주기(월별/분기별) 및 분석 대상 종목을 설정하세요.</p>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+            <!-- Year & Month Select Group -->
+            <div style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.3); padding: 6px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-card);">
+              <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">조회 시작:</span>
+              <select class="select-filter" id="saStartYearSelect" style="padding: 6px 10px; font-size: 13px;">
+                <option value="2020">2020년</option>
+                <option value="2021">2021년</option>
+                <option value="2022">2022년</option>
+                <option value="2023">2023년</option>
+                <option value="2024" selected>2024년</option>
+                <option value="2025">2025년</option>
+                <option value="2026">2026년</option>
+              </select>
+              <select class="select-filter" id="saStartMonthSelect" style="padding: 6px 10px; font-size: 13px;">
+                <option value="01" selected>1월</option>
+                <option value="02">2월</option>
+                <option value="03">3월</option>
+                <option value="04">4월</option>
+                <option value="05">5월</option>
+                <option value="06">6월</option>
+                <option value="07">7월</option>
+                <option value="08">8월</option>
+                <option value="09">9월</option>
+                <option value="10">10월</option>
+                <option value="11">11월</option>
+                <option value="12">12월</option>
+              </select>
+            </div>
+
+            <!-- Refresh Holdings & Ticker Match Button (Left of Interval Switch) -->
+            <button id="btnSaRefreshStocks" type="button" class="btn-refresh-stocks" title="보유종목 최신 갱신 및 KRX 티커 매칭">
+              <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>
+              <span>종목 갱신</span>
+            </button>
+
+            <!-- Interval Type Switch Segment Toggle (월별 / 분기별) -->
+            <div class="interval-switch-group">
+              <input type="radio" id="saIntervalMonthly" name="saIntervalType" value="monthly" checked>
+              <label for="saIntervalMonthly" class="interval-switch-btn">월별</label>
+              
+              <input type="radio" id="saIntervalQuarterly" name="saIntervalType" value="quarterly">
+              <label for="saIntervalQuarterly" class="interval-switch-btn">분기별</label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Part 2: Stock Multi-Selection Chips (Without Scrollbar) -->
+        <div style="padding-top: 14px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <i data-lucide="layers" style="width: 16px; height: 16px; color: var(--accent-cyan);"></i>
+              <span style="font-size: 14px; font-weight: 700; color: #ffffff;">분석할 종목 선택</span>
+              <span id="saSelectedStockCountBadge" style="font-size: 12px; font-weight: 800; color: var(--primary); background: rgba(99, 102, 241, 0.15); padding: 2px 8px; border-radius: 12px; border: 1px solid var(--border-card-bright);">
+                0개 선택됨
+              </span>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <button id="btnSaSelectAll" type="button" class="btn-select-snap" style="padding: 4px 10px; font-size: 12px; display: flex; align-items: center; gap: 4px;">
+                <i data-lucide="check-square" style="width: 13px; height: 13px;"></i> 전체 선택
+              </button>
+              <button id="btnSaDeselectAll" type="button" class="btn-select-snap" style="padding: 4px 10px; font-size: 12px; display: flex; align-items: center; gap: 4px; background: rgba(255, 255, 255, 0.05); color: var(--text-muted);">
+                <i data-lucide="square" style="width: 13px; height: 13px;"></i> 전체 해제
+              </button>
+            </div>
+          </div>
+
+          <!-- Stock Chips Flex Container (No scrollbar, full display) -->
+          <div id="saStockChipContainer" class="stock-chip-grid">
+            <!-- Dynamically populated stock chips -->
+          </div>
+        </div>
+
+        <!-- Sync & Draw Button -->
+        <button id="btnSyncAndDraw" type="button" class="btn-sync-draw">
+          <i data-lucide="line-chart"></i>
+          <span>주가 동기화 및 그래프 그리기</span>
+        </button>
+
+        <!-- KRX Master Matching & High-Speed Sync Status HUD -->
+        <div id="saKrxSyncHud" class="krx-sync-hud" style="display: none; margin-top: 16px;">
+          <div class="krx-sync-header">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span class="krx-badge"><i data-lucide="database" style="width: 13px; height: 13px;"></i> KRX 4,300+ MASTER DB</span>
+              <span id="saKrxMasterStatus" style="font-size: 13px; font-weight: 600; color: #ffffff;">선택 종목 KRX 대조 및 초고속 시계열 동기화 완료</span>
+            </div>
+            <div id="saKrxSpeedMeter" class="krx-speed-badge">
+              <i data-lucide="zap" style="width: 13px; height: 13px; color: #f59e0b;"></i> <span id="saKrxSpeedText">동기화 0ms</span>
+            </div>
+          </div>
+          <div id="saKrxStockPillsContainer" class="krx-pills-grid">
+            <!-- Dynamically populated per-stock ticker pills with code and fetch latency -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Trend Chart & Analytics Section -->
+      <div id="saChartSection" class="table-card" style="margin-bottom: 24px;">
+        <div class="table-toolbar" style="flex-wrap: wrap; gap: 16px;">
+          <div>
+            <h2 class="chart-title" style="font-size: 20px;">
+              <i data-lucide="trending-up" style="color: var(--primary);"></i> <span id="saChartSectionTitle">월간 주가 변동 트렌드</span>
+            </h2>
+            <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;" id="saChartSectionSub">
+              선택한 종목들의 시계열 주가 추이 및 S&P 500, KOSPI 200 대비 성과를 비교합니다.
+            </p>
+          </div>
+
+          <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-left: auto;">
+            <!-- Chart Mode -->
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <label for="stockChartModeSelect" style="font-size: 13px; color: var(--text-muted); font-weight: 600;">표시 방식:</label>
+              <select class="select-filter" id="stockChartModeSelect">
+                <option value="normalized">기준점 대비 누적 변동률 (%)</option>
+                <option value="actual">실제 주가 / 단가 (원)</option>
+              </select>
+            </div>
+
+            <!-- Benchmark Checkboxes -->
+            <div style="display: flex; align-items: center; gap: 10px; background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-card);">
+              <span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">벤치마크:</span>
+              <label style="font-size: 13px; color: #f59e0b; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                <input type="checkbox" id="chkSp500" checked style="accent-color: #f59e0b;"> S&P 500
+              </label>
+              <label style="font-size: 13px; color: #10b981; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                <input type="checkbox" id="chkKospi200" checked style="accent-color: #10b981;"> KOSPI 200
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Initial Empty Prompt State before clicking sync button -->
+        <div id="saEmptyPrompt" style="text-align: center; padding: 48px 20px; background: rgba(0,0,0,0.2); border-radius: var(--radius-md); margin-top: 12px;">
+          <div style="width: 56px; height: 56px; background: rgba(99, 102, 241, 0.15); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--primary); margin-bottom: 12px;">
+            <i data-lucide="trending-up" style="width: 28px; height: 28px;"></i>
+          </div>
+          <h3 style="font-size: 16px; font-weight: 700; color: #ffffff; margin-bottom: 6px;">주가 트렌드 차트를 생성해 주세요</h3>
+          <p style="font-size: 13px; color: var(--text-muted); max-w: 480px; margin: 0 auto; line-height: 1.5;">
+            상단 조건 설정에서 조회 기간과 종목을 선택한 후 <strong style="color: var(--primary);">"주가 동기화 및 그래프 그리기"</strong> 버튼을 클릭하면 정밀한 주가 차트와 벤치마크 비교 데이터가 생성됩니다.
+          </p>
+        </div>
+
+        <!-- Chart Layout (Shown after graph generation) -->
+        <div id="saChartWrapper" style="display: none; margin-top: 16px;">
+          <!-- ② KPI Performance Cards Grid -->
+          <div class="kpi-grid" style="margin-top: 4px; margin-bottom: 18px;">
+            <div class="kpi-card" id="saKpiStockReturnCard">
+              <div class="kpi-header">
+                <span class="kpi-label" id="saKpiStockName">종목 기간 수익률</span>
+                <div class="kpi-icon"><i data-lucide="trending-up"></i></div>
+              </div>
+              <div class="kpi-value" id="saKpiStockReturnVal">0.00%</div>
+              <div class="kpi-sub" id="saKpiStockSub">기준 시점 대비 성과</div>
+            </div>
+
+            <div class="kpi-card" style="border-left: 3px solid #f59e0b;">
+              <div class="kpi-header">
+                <span class="kpi-label">S&P 500 대비 초과 성과</span>
+                <div class="kpi-icon" style="color: #f59e0b;"><i data-lucide="globe"></i></div>
+              </div>
+              <div class="kpi-value" id="saKpiSp500DiffVal">0.0%p</div>
+              <div class="kpi-sub" id="saKpiSp500Sub">S&P 500 변동률 대비</div>
+            </div>
+
+            <div class="kpi-card" style="border-left: 3px solid #10b981;">
+              <div class="kpi-header">
+                <span class="kpi-label">KOSPI 200 대비 초과 성과</span>
+                <div class="kpi-icon" style="color: #10b981;"><i data-lucide="bar-chart-2"></i></div>
+              </div>
+              <div class="kpi-value" id="saKpiKospi200DiffVal">0.0%p</div>
+              <div class="kpi-sub" id="saKpiKospi200Sub">KOSPI 200 변동률 대비</div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-header">
+                <span class="kpi-label">종목 테마 & 분류</span>
+                <div class="kpi-icon" style="color: var(--accent-cyan);"><i data-lucide="tag"></i></div>
+              </div>
+              <div class="kpi-value" id="saKpiThemeVal" style="font-size: 18px; font-weight: 700; color: #67e8f9;">-</div>
+              <div class="kpi-sub" id="saKpiThemeSub">종목 속성 자동 매칭</div>
+            </div>
+          </div>
+
+          <!-- ③ Price Chart Canvas Container -->
+          <div class="chart-card" style="background: rgba(0, 0, 0, 0.2); padding: 16px; border-radius: var(--radius-md); margin-bottom: 16px;">
+            <div class="chart-container" style="height: 400px;">
+              <canvas id="stockAnalysisChart"></canvas>
+            </div>
+          </div>
+
+          <!-- ① Legend Chips Container -->
+          <div id="saStockLegendContainer" class="stock-legend-grid">
+            <!-- Rendered by app.js -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 2: Stock Correlation & Risk Diversification Analysis -->
+      <div class="table-card" style="margin-bottom: 24px;">
+        <div class="table-toolbar" style="flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
+          <div>
+            <h2 class="chart-title" style="font-size: 20px;">
+              <i data-lucide="git-compare" style="color: var(--accent-cyan);"></i> 보유 종목 상관관계 & 포트폴리오 리스크 분산 분석
+            </h2>
+            <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+              피어슨 상관계수(r) 분석을 통해 보유 종목 간 동조 움직임 및 리스크 분산(헷지) 효과를 측정합니다.
+            </p>
+          </div>
+
+          <!-- Sub-Tab Filter Buttons -->
+          <div class="correlation-subtabs">
+            <button class="corr-subtab active" data-subtab="high_similarity">
+              <i data-lucide="flame" style="color: #f87171;"></i> 높은 동조성 (r ≥ 0.7)
+            </button>
+            <button class="corr-subtab" data-subtab="hedge_diversity">
+              <i data-lucide="shield-check" style="color: #34d399;"></i> 헷지 & 분산 (r ≤ -0.1)
+            </button>
+            <button class="corr-subtab" data-subtab="heatmap">
+              <i data-lucide="grid" style="color: #818cf8;"></i> 상관계수 히트맵
+            </button>
+            <button class="corr-subtab" data-subtab="custom_duo">
+              <i data-lucide="sliders" style="color: #fbbf24;"></i> 1:1 종목 직접 비교
+            </button>
+          </div>
+        </div>
+
+        <!-- Dynamic Sub-Tab Content View -->
+        <div id="stockCorrelationSubView">
+          <!-- Dynamic contents rendered by app.js -->
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 5: 투자 스냅샷 (Investment Snapshots & Excel Manager) -->
     <div id="tab-snapshots" class="tab-content">
       <div class="table-card" style="margin-bottom: 24px;">
         <div class="table-toolbar">
@@ -277,8 +691,8 @@
         <!-- Embedded File Dropzone -->
         <div class="dropzone" id="fileDropzoneTab" style="margin-bottom: 24px;">
           <i data-lucide="upload-cloud" class="dropzone-icon"></i>
-          <div class="dropzone-text">클릭하거나 엑셀 파일(spop_*.xlsx)을 이곳에 드래그하세요</div>
-          <div class="dropzone-hint">삼성증권 SPOP 또는 포트폴리오 엑셀 양식 지원</div>
+          <div class="dropzone-text">클릭하거나 엑셀 파일(spop_*.xlsx 또는 월별투자성과현황_*.xlsx)을 이곳에 드래그하세요</div>
+          <div class="dropzone-hint">삼성증권 SPOP 포트폴리오 및 월별투자성과현황 엑셀 양식 자동 감지 지원</div>
           <input type="file" id="excelFileInputTab" accept=".xlsx, .xls" style="display: none;">
         </div>
 
@@ -286,7 +700,7 @@
         <h3 class="chart-title" style="font-size: 16px; margin-bottom: 14px;">
           <i data-lucide="database" style="color: var(--accent-cyan);"></i> 등록된 전체 스냅샷 히스토리 목록
         </h3>
-        <div class="table-responsive">
+        <div class="table-responsive" style="margin-bottom: 24px;">
           <table>
             <thead>
               <tr>
@@ -304,6 +718,45 @@
             </tbody>
           </table>
         </div>
+
+        <!-- Registered Monthly Performance Excel Manager Card -->
+        <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-card-bright); border-radius: var(--radius-md); padding: 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; margin-bottom: 14px;">
+            <div>
+              <h3 class="chart-title" style="font-size: 17px; display: flex; align-items: center; gap: 8px;">
+                <i data-lucide="bar-chart-2" style="color: var(--primary);"></i> 등록된 월별 투자성과 엑셀 파일 관리
+              </h3>
+              <p style="font-size: 12.5px; color: var(--text-muted); margin-top: 4px;">
+                월별투자성과현황 엑셀 파일(월별투자성과현황_*.xlsx)을 등록하여 시계열 월별 성과 차트 및 분석에 반영합니다.
+              </p>
+            </div>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+              <button class="btn-upload" id="btnUploadMonthlyExcelTab" style="padding: 8px 14px; font-size: 13px;">
+                <i data-lucide="upload"></i> 월별 성과 엑셀 등록
+              </button>
+              <input type="file" id="monthlyExcelFileInput" accept=".xlsx, .xls" style="display: none;">
+              <button class="btn-select-snap" id="btnResetMonthlyExcelTab" style="display: flex; align-items: center; gap: 6px; padding: 8px 14px; font-size: 13px;">
+                <i data-lucide="rotate-ccw"></i> 기본 데이터 복원
+              </button>
+            </div>
+          </div>
+
+          <div style="background: rgba(17, 24, 39, 0.7); border: 1px solid var(--border-card); border-radius: var(--radius-sm); padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
+            <div>
+              <div style="font-size: 14px; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 8px;" id="snapshotMpStatusTitle">
+                <i data-lucide="check-circle" style="color: var(--profit-green); width: 16px; height: 16px;"></i>
+                월별 성과 데이터: 2017.10 ~ 2026.09 (총 108개월)
+              </div>
+              <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;" id="snapshotMpStatusSub">
+                출처: spop_db/월별투자성과현황_2609.xlsx | 최신 기말 평가금액: 246,544,827원 | 누적 손익: +103,765,379원
+              </div>
+            </div>
+
+            <button class="btn-select-snap" onclick="switchTab('tab-monthly-performance')" style="background: rgba(99, 102, 241, 0.2); color: #ffffff; border-color: var(--primary); display: flex; align-items: center; gap: 6px;">
+              월별 투자성과 탭으로 이동 <i data-lucide="arrow-right" style="width: 14px; height: 14px;"></i>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -318,14 +771,121 @@
       </div>
       <div class="dropzone" id="fileDropzone">
         <i data-lucide="upload-cloud" class="dropzone-icon"></i>
-        <div class="dropzone-text">클릭하거나 엑셀 파일(spop_*.xlsx)을 드래그하세요</div>
-        <div class="dropzone-hint">삼성증권 SPOP 또는 포트폴리오 엑셀 양식 지원</div>
+        <div class="dropzone-text">클릭하거나 엑셀 파일(spop_*.xlsx 또는 월별투자성과현황_*.xlsx)을 드래그하세요</div>
+        <div class="dropzone-hint">삼성증권 SPOP 포트폴리오 및 월별투자성과현황 엑셀 양식 자동 감지 지원</div>
         <input type="file" id="excelFileInput" accept=".xlsx, .xls" style="display: none;">
       </div>
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <!-- Settings Modal (환경 설정: Password 재설정, DB 초기화) -->
+  <div class="modal-overlay" id="settingsModal">
+    <div class="modal settings-modal-card">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div class="settings-modal-icon">
+            <i data-lucide="settings"></i>
+          </div>
+          <div>
+            <h3 class="modal-title">시스템 환경 설정</h3>
+            <p style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">보안 비밀번호 및 로컬 데이터베이스 관리</p>
+          </div>
+        </div>
+        <button class="modal-close" id="closeSettingsModalBtn">&times;</button>
+      </div>
+      
+      <div class="settings-modal-body">
+        <!-- Section 1: Password Management -->
+        <div class="settings-section">
+          <div class="settings-section-header">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <i data-lucide="key-round" style="color: var(--primary); width: 18px; height: 18px;"></i>
+              <h4 style="font-size: 15px; font-weight: 700; color: #ffffff;">Password 재설정 및 보안</h4>
+            </div>
+            <span id="pwdStatusBadge" class="badge-status">미설정</span>
+          </div>
+          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.5;">
+            대시보드 접속 보안 비밀번호를 설정하거나 새로운 비밀번호로 재설정합니다.
+          </p>
+
+          <form id="passwordForm" onsubmit="return false;" style="display: flex; flex-direction: column; gap: 10px;">
+            <div id="currentPwdGroup" style="display: none;">
+              <label for="currentPasswordInput" style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">현재 비밀번호:</label>
+              <input type="password" id="currentPasswordInput" class="settings-input" placeholder="현재 비밀번호 입력">
+            </div>
+
+            <div>
+              <label for="newPasswordInput" style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">새 비밀번호:</label>
+              <input type="password" id="newPasswordInput" class="settings-input" placeholder="새 비밀번호 입력 (4자 이상)">
+            </div>
+
+            <div>
+              <label for="confirmPasswordInput" style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">새 비밀번호 확인:</label>
+              <input type="password" id="confirmPasswordInput" class="settings-input" placeholder="새 비밀번호 다시 입력">
+            </div>
+
+            <div style="display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap;">
+              <button type="button" id="btnSavePassword" class="btn-primary-settings">
+                <i data-lucide="shield-check" style="width: 15px; height: 15px;"></i> Password 저장 / 재설정
+              </button>
+              <button type="button" id="btnRemovePassword" class="btn-outline-settings" style="display: none;">
+                <i data-lucide="shield-off" style="width: 15px; height: 15px;"></i> 비밀번호 해제
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Section 2: DB Initialization -->
+        <div class="settings-section" style="margin-top: 18px;">
+          <div class="settings-section-header">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <i data-lucide="database" style="color: var(--loss-red); width: 18px; height: 18px;"></i>
+              <h4 style="font-size: 15px; font-weight: 700; color: #ffffff;">로컬 DB 초기화</h4>
+            </div>
+            <span class="badge-danger-tag">데이터 관리</span>
+          </div>
+          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.5;">
+            프로그램에 로드된 모든 스냅샷 데이터(기본 데이터 및 업로드 데이터)를 완전히 삭제하고 <strong>빈 화면(0건)</strong> 상태로 초기화합니다.
+          </p>
+
+          <div style="background: rgba(244, 63, 94, 0.1); border: 1px solid rgba(244, 63, 94, 0.25); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 14px; display: flex; align-items: flex-start; gap: 8px;">
+            <i data-lucide="alert-triangle" style="color: var(--loss-red); width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px;"></i>
+            <span style="font-size: 11px; color: #fda4af; line-height: 1.4;">초기화 시 모든 차트 및 스냅샷이 비워지며, 새로운 엑셀 파일(spop_*.xlsx)을 업로드하여 데이터를 채울 수 있습니다.</span>
+          </div>
+
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button type="button" id="btnResetDatabase" class="btn-danger-settings">
+              <i data-lucide="trash-2" style="width: 15px; height: 15px;"></i> 전체 데이터 완전 삭제 (0건 초기화)
+            </button>
+            <button type="button" id="btnRestoreDemoData" class="btn-outline-settings">
+              <i data-lucide="rotate-ccw" style="width: 15px; height: 15px;"></i> 기본 예제 데이터 복원
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- App Lock Screen Overlay (Only active if password is set) -->
+  <div class="lock-overlay" id="appLockOverlay" style="display: none;">
+    <div class="lock-card">
+      <div class="lock-icon-wrap">
+        <i data-lucide="lock"></i>
+      </div>
+      <h2 style="font-size: 20px; font-weight: 800; color: #ffffff; margin-bottom: 6px;">JS Investment</h2>
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 20px;">보안 잠금 상태입니다. 비밀번호를 입력해주세요.</p>
+      
+      <form id="lockScreenForm" onsubmit="return false;" style="width: 100%; display: flex; flex-direction: column; gap: 12px;">
+        <input type="password" id="lockPasswordInput" class="settings-input" placeholder="비밀번호 입력" style="text-align: center; font-size: 16px; letter-spacing: 2px;">
+        <button type="button" id="btnUnlockApp" class="btn-primary-settings" style="width: 100%; padding: 12px; justify-content: center; font-size: 15px;">
+          <i data-lucide="unlock" style="width: 16px; height: 16px;"></i> 잠금 해제
+        </button>
+        <p id="lockErrorMsg" style="font-size: 12px; color: var(--loss-red); display: none; text-align: center; margin-top: 4px;">비밀번호가 일치하지 않습니다.</p>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js?v=20260924_03"></script>
   <script>
     // Initialize Lucide Icons
     lucide.createIcons();

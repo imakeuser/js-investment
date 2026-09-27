@@ -1,3 +1,6 @@
 backups/
 *.zip
 scratch/
+.env
+.env.*
+

@@ -3,6 +3,9 @@
   // Register Chart.js DataLabels plugin globally if available
   if (typeof ChartDataLabels !== 'undefined') {
     Chart.register(ChartDataLabels);
+    if (Chart.defaults && Chart.defaults.set) {
+      Chart.defaults.set('plugins.datalabels', { display: false });
+    }
   }
 
   // Pre-loaded complete Korean dataset (2026.06.28 & 2026.09.12)
@@ -70,7 +73,7 @@
         { "account": "7164******-28 [퇴직연금(DC)]", "name": "TIGER 머니마켓액티브", "qty": 116.0, "price": 102820.0, "buy": 11731039, "eval": 11927120, "profit": 196081, "returnRate": 1.67 },
         { "account": "7164******-28 [퇴직연금(DC)]", "name": "TIGER 차이나테크TOP10", "qty": 542.0, "price": 14890.0, "buy": 6861485, "eval": 8071210, "profit": 1209725, "returnRate": 17.63 },
         { "account": "7164******-28 [퇴직연금(DC)]", "name": "KODEX 차이나달러비상장채권액티브", "qty": 386.0, "price": 7685.0, "buy": 4451400, "eval": 2966410, "profit": -1484990, "returnRate": -33.36 },
-        { "account": "7164******-28 [퇴직연금(DC)]", "name": "KODEX 금양액티브", "qty": 964.0, "price": 11955.0, "buy": 12324550, "eval": 11524620, "profit": -799930, "returnRate": -6.49 },
+        { "account": "7164******-28 [퇴직연금(DC)]", "name": "KODEX 금액티브", "qty": 964.0, "price": 11955.0, "buy": 12324550, "eval": 11524620, "profit": -799930, "returnRate": -6.49 },
         { "account": "7164******-28 [퇴직연금(DC)]", "name": "TIGER KRX금현물", "qty": 2726.0, "price": 12825.0, "buy": 28037200, "eval": 34961000, "profit": 6923800, "returnRate": 24.7 },
         { "account": "7164******-28 [퇴직연금(DC)]", "name": "KODEX 금융고배당TOP10", "qty": 219.0, "price": 12155.0, "buy": 2818075, "eval": 2661945, "profit": -156130, "returnRate": -5.54 },
         { "account": "7164******-28 [퇴직연금(DC)]", "name": "KODEX 원자력SMR", "qty": 200.0, "price": 15130.0, "buy": 2042000, "eval": 3026000, "profit": 984000, "returnRate": 48.19 },
@@ -141,7 +144,7 @@
         { "account": "7164******-28 [퇴직연금(DC)]", "name": "TIGER 머니마켓액티브", "qty": 116.0, "price": 103635.0, "buy": 11731039, "eval": 12021660, "profit": 290621, "returnRate": 2.48 },
         { "account": "7164******-28 [퇴직연금(DC)]", "name": "TIGER 차이나테크TOP10", "qty": 542.0, "price": 12235.0, "buy": 6861485, "eval": 6631370, "profit": -230115, "returnRate": -3.35 },
         { "account": "7164******-28 [퇴직연금(DC)]", "name": "KODEX 차이나달러비상장채권액티브", "qty": 386.0, "price": 7755.0, "buy": 4451400, "eval": 2993430, "profit": -1457970, "returnRate": -32.75 },
-        { "account": "7164******-28 [퇴직연금(DC)]", "name": "KODEX 금양액티브", "qty": 964.0, "price": 12290.0, "buy": 12324550, "eval": 11847560, "profit": -476990, "returnRate": -3.87 },
+        { "account": "7164******-28 [퇴직연금(DC)]", "name": "KODEX 금액티브", "qty": 964.0, "price": 12290.0, "buy": 12324550, "eval": 11847560, "profit": -476990, "returnRate": -3.87 },
         { "account": "7164******-28 [퇴직연금(DC)]", "name": "TIGER KRX금현물", "qty": 2726.0, "price": 12605.0, "buy": 28037200, "eval": 34361230, "profit": 6324030, "returnRate": 22.56 },
         { "account": "7164******-28 [퇴직연금(DC)]", "name": "KODEX 금융고배당TOP10", "qty": 219.0, "price": 13815.0, "buy": 2818075, "eval": 3025485, "profit": 207410, "returnRate": 7.36 },
         { "account": "7164******-28 [퇴직연금(DC)]", "name": "KODEX 원자력SMR", "qty": 200.0, "price": 17915.0, "buy": 2042000, "eval": 3583000, "profit": 1541000, "returnRate": 75.47 },
@@ -170,26 +173,178 @@
     return `${sign}${val.toFixed(2)}%`;
   }
 
-  async function initData() {
-    try {
-      const resp = await fetch('initial_data.json');
-      if (resp.ok) {
-        rawDatasets = await resp.json();
-      } else {
-        rawDatasets = INITIAL_DATA;
-      }
-    } catch(e) {
-      rawDatasets = INITIAL_DATA;
+  // ==========================================
+  // DB Status Banner & Notification Handler
+  // ==========================================
+  function showStatusNotice(msg, type = 'warning') {
+    const noticeEl = document.getElementById('dbStatusNotice');
+    if (!noticeEl) return;
+    noticeEl.className = `db-status-notice ${type}`;
+    noticeEl.innerHTML = `<i data-lucide="${type === 'warning' ? 'alert-triangle' : 'info'}"></i> <span>${msg}</span>`;
+    noticeEl.style.display = 'flex';
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  function hideStatusNotice() {
+    const noticeEl = document.getElementById('dbStatusNotice');
+    if (noticeEl) noticeEl.style.display = 'none';
+  }
+
+  // ==========================================
+  // Excel ArrayBuffer Parser (Samsung Securities SPOP format)
+  // ==========================================
+  function parseSpopArrayBuffer(arrayBuffer, filename = '') {
+    if (!window.XLSX) {
+      throw new Error('SheetJS (XLSX) 라이브러리가 로드되지 않았습니다.');
+    }
+    const data = new Uint8Array(arrayBuffer);
+    const workbook = XLSX.read(data, { type: 'array' });
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const jsonRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+    if (jsonRows.length < 3) {
+      throw new Error('올바른 삼성증권 SPOP 엑셀 양식이 아닙니다.');
     }
 
+    let dateStr = String(jsonRows[0][0] || '').trim();
+    let parsedDate = dateStr.slice(0, 10).replace(/\./g, '-');
+    if (!parsedDate || !parsedDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      const match = filename.match(/(\d{2})(\d{2})(\d{2})/);
+      if (match) {
+        parsedDate = `20${match[1]}-${match[2]}-${match[3]}`;
+      } else {
+        parsedDate = new Date().toISOString().slice(0, 10);
+      }
+    }
+
+    const items = [];
+    let totalBuy = 0, totalEval = 0, totalProfit = 0;
+
+    for (let i = 2; i < jsonRows.length; i++) {
+      const row = jsonRows[i];
+      if (!row || row.length < 7) continue;
+
+      const acct = String(row[0] || '').trim();
+      const name = String(row[1] || '').trim();
+      if (!acct || !name) continue;
+
+      const qty = parseFloat(String(row[3] || '0').replace(/,/g, '')) || 0;
+      const price = parseFloat(String(row[4] || '0').replace(/,/g, '')) || 0;
+      const buy = parseInt(String(row[5] || '0').replace(/,/g, '')) || 0;
+      const evalAmt = parseInt(String(row[6] || '0').replace(/,/g, '')) || 0;
+      const profit = parseInt(String(row[7] || '0').replace(/,/g, '')) || 0;
+      const retRate = parseFloat(String(row[9] || '0').replace(/,/g, '')) || 0;
+
+      totalBuy += buy;
+      totalEval += evalAmt;
+      totalProfit += profit;
+
+      items.push({
+        account: acct,
+        name: name,
+        qty: qty,
+        price: price,
+        buy: buy,
+        eval: evalAmt,
+        profit: profit,
+        returnRate: retRate
+      });
+    }
+
+    return {
+      date: parsedDate,
+      label: `${parsedDate} 스냅샷`,
+      timestamp: dateStr || parsedDate,
+      totalBuy: totalBuy,
+      totalEval: totalEval,
+      totalProfit: totalProfit,
+      returnRate: totalBuy > 0 ? (totalProfit / totalBuy * 100) : 0,
+      items: items
+    };
+  }
+
+  // ==========================================
+  // Data Initialization Module with spop_db Integration & Error Handling
+  // ==========================================
+  async function initData(forceDemo = false) {
+    let loadedDatasets = [];
+    let spopDbSuccessCount = 0;
+
+    const isDbCleared = localStorage.getItem('js_db_cleared') === 'true';
+    const deletedDatesJson = localStorage.getItem('js_deleted_snapshots');
+    const deletedDates = new Set(deletedDatesJson ? JSON.parse(deletedDatesJson) : []);
+
+    if (!isDbCleared || forceDemo) {
+      if (forceDemo) {
+        localStorage.removeItem('js_db_cleared');
+        localStorage.removeItem('js_deleted_snapshots');
+      }
+
+      // 1. Try loading datasets from spop_db directory
+      try {
+        const manifestResp = await fetch('spop_db/manifest.json');
+        if (manifestResp.ok) {
+          const fileList = await manifestResp.json();
+          if (Array.isArray(fileList) && fileList.length > 0) {
+            for (const filename of fileList) {
+              try {
+                const fileResp = await fetch(`spop_db/${filename}`);
+                if (fileResp.ok) {
+                  const buf = await fileResp.arrayBuffer();
+                  const dataset = parseSpopArrayBuffer(buf, filename);
+                  if (dataset && dataset.items.length > 0) {
+                    if (forceDemo || !deletedDates.has(dataset.date)) {
+                      loadedDatasets.push(dataset);
+                      spopDbSuccessCount++;
+                    }
+                  }
+                }
+              } catch (fileErr) {
+                console.warn(`spop_db/${filename} file read error:`, fileErr);
+              }
+            }
+          }
+        }
+      } catch (dbErr) {
+        console.warn('spop_db manifest fetch error:', dbErr);
+      }
+
+      // 2. Fallback to initial_data.json / INITIAL_DATA if spop_db files are missing or failed
+      if (loadedDatasets.length === 0 && (!isDbCleared || forceDemo)) {
+        try {
+          const resp = await fetch('initial_data.json');
+          if (resp.ok) {
+            const jsonDs = await resp.json();
+            loadedDatasets = (forceDemo ? jsonDs : jsonDs.filter(d => !deletedDates.has(d.date)));
+          } else {
+            loadedDatasets = (forceDemo ? INITIAL_DATA : INITIAL_DATA.filter(d => !deletedDates.has(d.date)));
+          }
+        } catch (e) {
+          loadedDatasets = (forceDemo ? INITIAL_DATA : INITIAL_DATA.filter(d => !deletedDates.has(d.date)));
+        }
+      } else {
+        hideStatusNotice();
+      }
+    } else {
+      hideStatusNotice();
+    }
+
+    // 3. Load custom uploaded datasets from localStorage
     const savedCustom = localStorage.getItem('js_investment_custom');
     if (savedCustom) {
       try {
         const parsed = JSON.parse(savedCustom);
-        rawDatasets = rawDatasets.concat(parsed);
+        const existingDates = new Set(loadedDatasets.map(d => d.date));
+        parsed.forEach(p => {
+          if (!existingDates.has(p.date) && (forceDemo || !deletedDates.has(p.date))) {
+            loadedDatasets.push(p);
+          }
+        });
       } catch(e) {}
     }
 
+    rawDatasets = loadedDatasets;
     rawDatasets.sort((a, b) => new Date(a.date) - new Date(b.date));
 
     // Normalize totals for all snapshots
@@ -202,16 +357,26 @@
       }
     });
 
-    selectedSnapshotIndex = rawDatasets.length - 1;
+    selectedSnapshotIndex = rawDatasets.length > 0 ? rawDatasets.length - 1 : -1;
 
     renderDateButtons();
     renderDashboard();
+
+    // Preload KRX Master Database asynchronously
+    loadKrxMasterDatabase().catch(err => console.warn('Background KRX load notice:', err));
   }
 
   function renderDateButtons() {
     const group = document.getElementById('dateSelectorGroup');
     if (!group) return;
     group.innerHTML = '';
+
+    if (rawDatasets.length === 0) {
+      group.innerHTML = '<span style="font-size: 13px; color: var(--text-muted); padding: 4px 8px;">등록된 스냅샷 데이터가 없습니다.</span>';
+      const headerTextEl = document.getElementById('headerActiveDateText');
+      if (headerTextEl) headerTextEl.innerText = '데이터 없음 (엑셀 업로드 필요)';
+      return;
+    }
 
     rawDatasets.forEach((ds, idx) => {
       const btn = document.createElement('button');
@@ -245,12 +410,16 @@
       if (lineChartInstance) lineChartInstance.resize();
       if (pieChartInstance) pieChartInstance.resize();
       accountRowChartInstances.forEach(c => c && c.resize());
+    } else if (tabId === 'tab-monthly-performance') {
+      renderMonthlyPerformanceTab();
     } else if (tabId === 'tab-accounts') {
       renderAccountBarChart();
     } else if (tabId === 'tab-snapshots') {
       renderSnapshotsHistoryTable();
     } else if (tabId === 'tab-holdings') {
       renderStockTable();
+    } else if (tabId === 'tab-stock-analysis') {
+      renderStockAnalysisTab();
     }
   }
   window.switchTab = switchTab;
@@ -260,80 +429,132 @@
     const latestCurr = rawDatasets[latestIndex];
     const prevLatest = latestIndex > 0 ? rawDatasets[latestIndex - 1] : null;
 
-    if (latestCurr) {
-      let totalBuy = 0, totalEval = 0, totalProfit = 0;
-      let accountMap = {};
-      let items = latestCurr.items || [];
-
-      if (items.length > 0) {
-        items.forEach(it => {
-          totalBuy += it.buy;
-          totalEval += it.eval;
-          totalProfit += it.profit;
-
-          if (!accountMap[it.account]) {
-            accountMap[it.account] = { name: it.account, buy: 0, eval: 0, profit: 0, count: 0 };
-          }
-          accountMap[it.account].buy += it.buy;
-          accountMap[it.account].eval += it.eval;
-          accountMap[it.account].profit += it.profit;
-          accountMap[it.account].count += 1;
-        });
-      } else {
-        totalBuy = latestCurr.totalBuy;
-        totalEval = latestCurr.totalEval;
-        totalProfit = latestCurr.totalProfit;
-        accountMap = latestCurr.accounts;
-      }
-
-      const returnRate = totalBuy > 0 ? (totalProfit / totalBuy * 100) : 0;
-
-      document.getElementById('kpiTotalEval').innerText = formatKRW(totalEval);
-      document.getElementById('kpiTotalBuy').innerText = formatKRW(totalBuy);
+    if (!latestCurr || rawDatasets.length === 0) {
+      document.getElementById('kpiTotalEval').innerText = '0 원';
+      document.getElementById('kpiTotalBuy').innerText = '0 원';
       
       const profitEl = document.getElementById('kpiTotalProfit');
-      profitEl.innerText = formatKRW(totalProfit);
-      if (totalProfit >= 0) {
-        profitEl.style.color = 'var(--profit-green)';
-        document.getElementById('kpiProfitBadge').className = 'badge-trend up';
-        document.getElementById('kpiProfitBadge').innerText = `수익 ${formatKRW(totalProfit)}`;
-      } else {
-        profitEl.style.color = 'var(--loss-red)';
-        document.getElementById('kpiProfitBadge').className = 'badge-trend down';
-        document.getElementById('kpiProfitBadge').innerText = `손실 ${formatKRW(totalProfit)}`;
+      profitEl.innerText = '0 원';
+      profitEl.style.color = 'var(--text-main)';
+      document.getElementById('kpiProfitBadge').className = 'badge-trend';
+      document.getElementById('kpiProfitBadge').innerText = '수익 0원';
+
+      document.getElementById('kpiReturnRate').innerText = '0.00%';
+      document.getElementById('kpiEvalTrend').innerText = '데이터 없음';
+      document.getElementById('kpiEvalTrend').className = 'badge-trend';
+
+      if (lineChartInstance) { lineChartInstance.destroy(); lineChartInstance = null; }
+      if (pieChartInstance) { pieChartInstance.destroy(); pieChartInstance = null; }
+      accountRowChartInstances.forEach(c => c && c.destroy());
+      accountRowChartInstances = [];
+
+      const accountsRowListEl = document.getElementById('accountsRowList');
+      if (accountsRowListEl) {
+        accountsRowListEl.innerHTML = `
+          <div style="text-align: center; padding: 48px 20px; background: rgba(0,0,0,0.25); border-radius: var(--radius-md); border: 1px dashed var(--border-card);">
+            <i data-lucide="inbox" style="width: 42px; height: 42px; margin-bottom: 12px; color: var(--text-dark);"></i>
+            <h4 style="font-size: 16px; font-weight: 700; color: #ffffff; margin-bottom: 6px;">등록된 자산 데이터가 없습니다</h4>
+            <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5;">
+              <strong>투자 스냅샷</strong> 탭에서 삼성증권 엑셀 파일(spop_*.xlsx)을 업로드하면 통합 자산 현황과 분석 차트가 생성됩니다.
+            </p>
+          </div>
+        `;
       }
 
-      document.getElementById('kpiReturnRate').innerText = formatPercent(returnRate);
-
-      if (prevLatest) {
-        const prevEval = prevLatest.totalEval || (prevLatest.items ? prevLatest.items.reduce((a,b)=>a+b.eval,0) : 0);
-        const evalDiff = totalEval - prevEval;
-        const evalDiffPct = prevEval > 0 ? (evalDiff / prevEval * 100) : 0;
-        const trendEl = document.getElementById('kpiEvalTrend');
-        if (evalDiff >= 0) {
-          trendEl.className = 'badge-trend up';
-          trendEl.innerText = `전월 대비 +${formatKRW(evalDiff)} (+${evalDiffPct.toFixed(1)}%)`;
-        } else {
-          trendEl.className = 'badge-trend down';
-          trendEl.innerText = `전월 대비 ${formatKRW(evalDiff)} (${evalDiffPct.toFixed(1)}%)`;
-        }
-      } else {
-        document.getElementById('kpiEvalTrend').innerText = '최초 스냅샷';
-        document.getElementById('kpiEvalTrend').className = 'badge-trend up';
+      const accountsGridTab3 = document.getElementById('accountsGridTab3');
+      if (accountsGridTab3) {
+        accountsGridTab3.innerHTML = `
+          <div style="text-align: center; padding: 40px; color: var(--text-muted); grid-column: 1 / -1;">
+            등록된 계좌 데이터가 없습니다.
+          </div>
+        `;
       }
 
-      renderLineChart();
-      renderPieChart(accountMap);
-      renderAccountRowList(accountMap);
-      renderAccountCards(accountMap, 'accountsGridTab3');
-      populateAccountFilter(accountMap);
+      const filterSel = document.getElementById('accountFilterSelect');
+      if (filterSel) filterSel.innerHTML = '<option value="ALL">전체 계좌 보기</option>';
+
+      renderStockTable();
+      renderSnapshotsHistoryTable();
+      if (activeTabId === 'tab-accounts') renderAccountBarChart();
+      if (activeTabId === 'tab-stock-analysis') renderStockAnalysisTab();
+      if (window.lucide) window.lucide.createIcons();
+      return;
     }
+
+    let totalBuy = 0, totalEval = 0, totalProfit = 0;
+    let accountMap = {};
+    let items = latestCurr.items || [];
+
+    if (items.length > 0) {
+      items.forEach(it => {
+        totalBuy += it.buy;
+        totalEval += it.eval;
+        totalProfit += it.profit;
+
+        if (!accountMap[it.account]) {
+          accountMap[it.account] = { name: it.account, buy: 0, eval: 0, profit: 0, count: 0 };
+        }
+        accountMap[it.account].buy += it.buy;
+        accountMap[it.account].eval += it.eval;
+        accountMap[it.account].profit += it.profit;
+        accountMap[it.account].count += 1;
+      });
+    } else {
+      totalBuy = latestCurr.totalBuy;
+      totalEval = latestCurr.totalEval;
+      totalProfit = latestCurr.totalProfit;
+      accountMap = latestCurr.accounts;
+    }
+
+    const returnRate = totalBuy > 0 ? (totalProfit / totalBuy * 100) : 0;
+
+    document.getElementById('kpiTotalEval').innerText = formatKRW(totalEval);
+    document.getElementById('kpiTotalBuy').innerText = formatKRW(totalBuy);
+    
+    const profitEl = document.getElementById('kpiTotalProfit');
+    profitEl.innerText = formatKRW(totalProfit);
+    if (totalProfit >= 0) {
+      profitEl.style.color = 'var(--profit-green)';
+      document.getElementById('kpiProfitBadge').className = 'badge-trend up';
+      document.getElementById('kpiProfitBadge').innerText = `수익 ${formatKRW(totalProfit)}`;
+    } else {
+      profitEl.style.color = 'var(--loss-red)';
+      document.getElementById('kpiProfitBadge').className = 'badge-trend down';
+      document.getElementById('kpiProfitBadge').innerText = `손실 ${formatKRW(totalProfit)}`;
+    }
+
+    document.getElementById('kpiReturnRate').innerText = formatPercent(returnRate);
+
+    if (prevLatest) {
+      const prevEval = prevLatest.totalEval || (prevLatest.items ? prevLatest.items.reduce((a,b)=>a+b.eval,0) : 0);
+      const evalDiff = totalEval - prevEval;
+      const evalDiffPct = prevEval > 0 ? (evalDiff / prevEval * 100) : 0;
+      const trendEl = document.getElementById('kpiEvalTrend');
+      if (evalDiff >= 0) {
+        trendEl.className = 'badge-trend up';
+        trendEl.innerText = `전월 대비 +${formatKRW(evalDiff)} (+${evalDiffPct.toFixed(1)}%)`;
+      } else {
+        trendEl.className = 'badge-trend down';
+        trendEl.innerText = `전월 대비 ${formatKRW(evalDiff)} (${evalDiffPct.toFixed(1)}%)`;
+      }
+    } else {
+      document.getElementById('kpiEvalTrend').innerText = '최초 스냅샷';
+      document.getElementById('kpiEvalTrend').className = 'badge-trend up';
+    }
+
+    renderLineChart();
+    renderPieChart(accountMap);
+    renderAccountRowList(accountMap);
+    renderAccountCards(accountMap, 'accountsGridTab3');
+    populateAccountFilter(accountMap);
 
     renderStockTable();
     renderSnapshotsHistoryTable();
 
     if (activeTabId === 'tab-accounts') {
       renderAccountBarChart();
+    } else if (activeTabId === 'tab-stock-analysis') {
+      renderStockAnalysisTab();
     }
   }
 
@@ -685,9 +906,46 @@
     renderStockTable();
   };
 
+  let expandedStockAccount = null;
+  let expandedStockName = null;
+  let stockDetailChartInstance = null;
+
   function renderStockTable() {
     const curr = rawDatasets[selectedSnapshotIndex] || rawDatasets[rawDatasets.length - 1];
-    if (!curr || !curr.items) return;
+    if (!curr || !curr.items || curr.items.length === 0) {
+      expandedStockAccount = null;
+      expandedStockName = null;
+      if (stockDetailChartInstance) {
+        stockDetailChartInstance.destroy();
+        stockDetailChartInstance = null;
+      }
+      const countEl = document.getElementById('holdingsCount');
+      if (countEl) countEl.innerText = '0개';
+      const evalEl = document.getElementById('holdingsTotalEval');
+      if (evalEl) evalEl.innerText = '0원';
+      const topG = document.getElementById('topGainItem');
+      if (topG) topG.innerText = '-';
+      const topGV = document.getElementById('topGainValue');
+      if (topGV) topGV.innerText = '-';
+      const topL = document.getElementById('topLossItem');
+      if (topL) topL.innerText = '-';
+      const topLV = document.getElementById('topLossValue');
+      if (topLV) topLV.innerText = '-';
+
+      const tbody = document.getElementById('stockTableBody');
+      if (tbody) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 48px 20px;">
+              <div style="font-size: 15px; font-weight: 600; margin-bottom: 6px; color: var(--text-main);">등록된 보유 종목 데이터가 없습니다.</div>
+              <p style="font-size: 13px; color: var(--text-muted);"><strong>투자 스냅샷</strong> 탭에서 엑셀 파일(spop_*.xlsx)을 업로드해주세요.</p>
+            </td>
+          </tr>
+        `;
+      }
+      if (window.lucide) window.lucide.createIcons();
+      return;
+    }
 
     let items = [...curr.items];
 
@@ -736,14 +994,16 @@
     const lossValEl = document.getElementById('topLossValue');
 
     if (items.length > 0) {
-      const topGain = [...items].sort((a,b) => b.profit - a.profit)[0];
-      const topLoss = [...items].sort((a,b) => a.profit - b.profit)[0];
+      const nonCash = items.filter(it => !it.name.includes('예수금') && !it.name.includes('USD') && !it.name.includes('현금'));
+      const pool = nonCash.length > 0 ? nonCash : items;
+      const topGain = [...pool].sort((a,b) => b.profit - a.profit)[0];
+      const topLoss = [...pool].sort((a,b) => a.profit - b.profit)[0];
 
       if (gainItemEl) gainItemEl.innerText = topGain ? topGain.name : '-';
-      if (gainValEl) gainValEl.innerText = topGain ? `${formatKRW(topGain.profit)} (${formatPercent(topGain.returnRate)})` : '-';
+      if (gainValEl) gainValEl.innerText = topGain && topGain.profit > 0 ? `+${formatKRW(topGain.profit)} (${formatPercent(topGain.returnRate)})` : '-';
 
       if (lossItemEl) lossItemEl.innerText = topLoss ? topLoss.name : '-';
-      if (lossValEl) lossValEl.innerText = topLoss ? `${formatKRW(topLoss.profit)} (${formatPercent(topLoss.returnRate)})` : '-';
+      if (lossValEl) lossValEl.innerText = topLoss && topLoss.profit < 0 ? `${formatKRW(topLoss.profit)} (${formatPercent(topLoss.returnRate)})` : '-';
     } else {
       if (gainItemEl) gainItemEl.innerText = '-';
       if (gainValEl) gainValEl.innerText = '-';
@@ -771,14 +1031,28 @@
       return;
     }
 
+    let hasExpandedActiveRow = false;
+
     items.forEach(it => {
+      const isExpanded = (expandedStockAccount === it.account && expandedStockName === it.name);
+      if (isExpanded) hasExpandedActiveRow = true;
+
       const tr = document.createElement('tr');
+      if (isExpanded) tr.classList.add('expanded-stock-row');
+
       const isProfit = it.profit >= 0;
       const profitClass = isProfit ? 'text-profit' : 'text-loss';
+      const encAcct = encodeURIComponent(it.account);
+      const encName = encodeURIComponent(it.name);
 
       tr.innerHTML = `
         <td style="font-size: 13px; color: var(--text-muted);">${it.account}</td>
-        <td style="font-weight: 700; color: #fff;">${it.name}</td>
+        <td class="stock-name-cell" onclick="window.toggleStockDetailChart('${encAcct}', '${encName}')" title="클릭하여 ${it.name} 자산 변동 그래프 보기/닫기">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+            <span class="stock-name-text" style="font-weight: 700; ${isExpanded ? 'color: var(--accent-cyan);' : ''}">${it.name}</span>
+            <i data-lucide="${isExpanded ? 'chevron-up' : 'line-chart'}" class="stock-chart-icon" style="width: 14px; height: 14px; color: ${isExpanded ? 'var(--accent-cyan)' : 'var(--primary)'}; opacity: ${isExpanded ? '1' : '0.6'}; flex-shrink: 0;"></i>
+          </div>
+        </td>
         <td class="num-col">${it.qty.toLocaleString()}</td>
         <td class="num-col">${it.price.toLocaleString()}원</td>
         <td class="num-col">${it.buy.toLocaleString()}원</td>
@@ -788,6 +1062,204 @@
       `;
 
       tbody.appendChild(tr);
+
+      if (isExpanded) {
+        const detailTr = document.createElement('tr');
+        detailTr.className = 'stock-detail-row';
+        detailTr.innerHTML = `
+          <td colspan="8" style="padding: 0;">
+            <div class="stock-detail-container" id="stockDetailContainer">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <div style="width: 32px; height: 32px; background: rgba(99, 102, 241, 0.2); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--primary);">
+                    <i data-lucide="trending-up" style="width: 16px; height: 16px;"></i>
+                  </div>
+                  <div>
+                    <span style="font-size: 15px; font-weight: 800; color: #ffffff;">${it.name}</span>
+                    <span style="font-size: 12px; color: var(--text-muted); margin-left: 6px;">[${it.account}]</span>
+                    <span style="font-size: 12px; color: var(--accent-cyan); margin-left: 8px; font-weight: 600;">시계열 자산 변동 현황</span>
+                  </div>
+                </div>
+                
+                <div style="display: flex; align-items: center; gap: 14px;">
+                  <div id="stockDetailKpis" style="display: flex; gap: 10px; font-size: 12px; flex-wrap: wrap;"></div>
+                  <button class="btn-close-chart" onclick="window.closeStockDetailChart()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; padding: 4px;" title="그래프 닫기">
+                    <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Canvas Container -->
+              <div style="height: 190px; width: 100%; position: relative;">
+                <canvas id="stockDetailCanvas"></canvas>
+              </div>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(detailTr);
+      }
+    });
+
+    if (window.lucide) window.lucide.createIcons();
+
+    if (hasExpandedActiveRow && expandedStockAccount && expandedStockName) {
+      setTimeout(() => {
+        renderInlineStockDetailChart(expandedStockAccount, expandedStockName);
+      }, 50);
+    }
+  }
+
+  window.toggleStockDetailChart = function(encAcct, encName) {
+    const account = decodeURIComponent(encAcct);
+    const name = decodeURIComponent(encName);
+
+    if (expandedStockAccount === account && expandedStockName === name) {
+      expandedStockAccount = null;
+      expandedStockName = null;
+      if (stockDetailChartInstance) {
+        stockDetailChartInstance.destroy();
+        stockDetailChartInstance = null;
+      }
+    } else {
+      expandedStockAccount = account;
+      expandedStockName = name;
+    }
+
+    renderStockTable();
+  };
+
+  window.closeStockDetailChart = function() {
+    expandedStockAccount = null;
+    expandedStockName = null;
+    if (stockDetailChartInstance) {
+      stockDetailChartInstance.destroy();
+      stockDetailChartInstance = null;
+    }
+    renderStockTable();
+  };
+
+  function renderInlineStockDetailChart(account, name) {
+    const canvas = document.getElementById('stockDetailCanvas');
+    if (!canvas) return;
+
+    if (stockDetailChartInstance) {
+      stockDetailChartInstance.destroy();
+      stockDetailChartInstance = null;
+    }
+
+    const labels = [];
+    const evalData = [];
+    const buyData = [];
+    const profitData = [];
+    const rateData = [];
+
+    rawDatasets.forEach(ds => {
+      labels.push(ds.date);
+      const it = (ds.items || []).find(item => item.account === account && item.name === name);
+      if (it) {
+        evalData.push(it.eval || 0);
+        buyData.push(it.buy || 0);
+        profitData.push(it.profit || 0);
+        rateData.push(it.returnRate || 0);
+      } else {
+        evalData.push(0);
+        buyData.push(0);
+        profitData.push(0);
+        rateData.push(0);
+      }
+    });
+
+    const latestEval = evalData[evalData.length - 1] || 0;
+    const latestProfit = profitData[profitData.length - 1] || 0;
+    const latestRate = rateData[rateData.length - 1] || 0;
+    const isProfit = latestProfit >= 0;
+
+    const kpisEl = document.getElementById('stockDetailKpis');
+    if (kpisEl) {
+      kpisEl.innerHTML = `
+        <span style="color: var(--text-muted); background: rgba(0,0,0,0.3); padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border-card);">
+          최신 평가액: <strong style="color: #ffffff;">${formatKRW(latestEval)}</strong>
+        </span>
+        <span style="color: var(--text-muted); background: rgba(0,0,0,0.3); padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border-card);">
+          누적 손익: <strong style="color: ${isProfit ? 'var(--profit-green)' : 'var(--loss-red)'};">${isProfit ? '+' : ''}${formatKRW(latestProfit)} (${formatPercent(latestRate)})</strong>
+        </span>
+      `;
+    }
+
+    const ctx = canvas.getContext('2d');
+    stockDetailChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: '평가금액',
+            data: evalData,
+            borderColor: '#6366f1',
+            backgroundColor: 'rgba(99, 102, 241, 0.15)',
+            borderWidth: 2.5,
+            fill: true,
+            tension: 0.3,
+            pointRadius: 5,
+            pointHoverRadius: 7
+          },
+          {
+            label: '매수금액',
+            data: buyData,
+            borderColor: '#9ca3af',
+            borderDash: [5, 5],
+            borderWidth: 1.8,
+            fill: false,
+            tension: 0.3,
+            pointRadius: 4
+          },
+          {
+            label: '평가손익',
+            data: profitData,
+            borderColor: isProfit ? '#10b981' : '#f43f5e',
+            backgroundColor: isProfit ? 'rgba(16, 185, 129, 0.08)' : 'rgba(244, 63, 94, 0.08)',
+            borderWidth: 2,
+            fill: false,
+            tension: 0.3,
+            pointRadius: 4
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          datalabels: { display: false },
+          legend: {
+            position: 'top',
+            align: 'end',
+            labels: { color: '#9ca3af', boxWidth: 12, font: { family: 'Outfit', size: 11 } }
+          },
+          tooltip: {
+            callbacks: {
+              label: (c) => c.dataset.label + ': ' + formatKRW(c.raw)
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: 'rgba(255, 255, 255, 0.04)' },
+            ticks: { color: '#9ca3af', font: { size: 11 } }
+          },
+          y: {
+            grid: { color: 'rgba(255, 255, 255, 0.04)' },
+            ticks: {
+              color: '#9ca3af',
+              font: { size: 10 },
+              callback: (v) => {
+                if (Math.abs(v) >= 100000000) return (v / 100000000).toFixed(1) + '억';
+                if (Math.abs(v) >= 10000) return (v / 10000).toFixed(0) + '만';
+                return v.toLocaleString() + '원';
+              }
+            }
+          }
+        }
+      }
     });
   }
 
@@ -795,6 +1267,19 @@
     const tbody = document.getElementById('snapshotsHistoryTableBody');
     if (!tbody) return;
     tbody.innerHTML = '';
+
+    if (rawDatasets.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 40px 20px;">
+            <div style="font-size: 15px; font-weight: 600; margin-bottom: 6px; color: var(--text-main);">등록된 스냅샷 히스토리가 없습니다.</div>
+            <p style="font-size: 13px; color: var(--text-muted);">상단 드롭존에서 엑셀 파일(spop_*.xlsx)을 업로드하여 스냅샷을 추가하세요.</p>
+          </td>
+        </tr>
+      `;
+      if (window.lucide) window.lucide.createIcons();
+      return;
+    }
 
     const latestIndex = rawDatasets.length - 1;
 
@@ -815,14 +1300,1588 @@
         <td class="num-col ${profitClass}">${isProfit ? '+' : ''}${formatKRW(ds.totalProfit)}</td>
         <td class="num-col ${profitClass}">${formatPercent(ds.returnRate)}</td>
         <td style="text-align: center;">
-          ${isSelected ? 
-            `<span class="badge-active-snap">종목 조회 선택됨</span>` : 
-            `<button class="btn-select-snap" onclick="window.selectSnapshotIndex(${idx})">스냅샷 조회</button>`
-          }
+          <div style="display: inline-flex; align-items: center; gap: 8px; justify-content: center;">
+            ${isSelected ? 
+              `<span class="badge-active-snap" style="display: inline-flex; align-items: center; gap: 4px;"><i data-lucide="check" style="width: 12px; height: 12px;"></i> 조회중</span>` : 
+              `<button class="btn-select-snap" onclick="window.selectSnapshotIndex(${idx})">스냅샷 조회</button>`
+            }
+            <button class="btn-delete-snap" onclick="window.deleteSnapshot(${idx})" title="${ds.date} 스냅샷 삭제">
+              <i data-lucide="trash-2" style="width: 13px; height: 13px;"></i> 삭제
+            </button>
+          </div>
         </td>
       `;
 
       tbody.appendChild(tr);
+    });
+
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  window.selectSnapshotIndex = function(idx) {
+    selectedSnapshotIndex = idx;
+    renderDateButtons();
+    renderDashboard();
+    switchTab('tab-holdings');
+  };
+
+  window.deleteSnapshot = function(idx) {
+    if (idx < 0 || idx >= rawDatasets.length) return;
+    const target = rawDatasets[idx];
+    const targetDate = target.date || `Snap #${idx + 1}`;
+
+    const ok = confirm(`정말로 [${targetDate}] 스냅샷 데이터를 삭제하시겠습니까?\n\n- 이 작업은 해당 날짜의 스냅샷 데이터를 목록과 차트에서 완전히 제거합니다.`);
+    if (!ok) return;
+
+    // 1. Remove from in-memory array
+    rawDatasets.splice(idx, 1);
+
+    // 2. Add to deleted snapshots blacklist in localStorage
+    const deletedDatesJson = localStorage.getItem('js_deleted_snapshots');
+    const deletedDates = deletedDatesJson ? JSON.parse(deletedDatesJson) : [];
+    if (!deletedDates.includes(target.date)) {
+      deletedDates.push(target.date);
+      localStorage.setItem('js_deleted_snapshots', JSON.stringify(deletedDates));
+    }
+
+    // 3. Update js_investment_custom in localStorage
+    const savedCustom = localStorage.getItem('js_investment_custom');
+    if (savedCustom) {
+      try {
+        const parsed = JSON.parse(savedCustom);
+        const updated = parsed.filter(d => d.date !== target.date);
+        localStorage.setItem('js_investment_custom', JSON.stringify(updated));
+      } catch(e) {}
+    }
+
+    // 4. Update selectedSnapshotIndex
+    if (rawDatasets.length === 0) {
+      selectedSnapshotIndex = -1;
+      localStorage.setItem('js_db_cleared', 'true');
+    } else {
+      if (selectedSnapshotIndex >= rawDatasets.length) {
+        selectedSnapshotIndex = rawDatasets.length - 1;
+      } else if (selectedSnapshotIndex === idx) {
+        selectedSnapshotIndex = Math.max(0, idx - 1);
+      } else if (selectedSnapshotIndex > idx) {
+        selectedSnapshotIndex--;
+      }
+    }
+
+    // 5. Re-render UI
+    renderDateButtons();
+    renderDashboard();
+    renderSnapshotsHistoryTable();
+    if (window.lucide) window.lucide.createIcons();
+
+    alert(`[${targetDate}] 스냅샷이 성공적으로 삭제되었습니다.`);
+  };
+
+  // ==========================================
+  // KRX Master Database & Multi-Tier Fast Stock Sync Engine
+  // ==========================================
+  let krxMasterDb = {};
+  let krxMasterLoaded = false;
+  let cachedKrxTimeSeries = {}; // in-memory cache: code -> { date: price }
+  let lastSyncStats = { count: 0, durationMs: 0, items: [] };
+
+  // Strict cash-like asset filter
+  function isCashLikeAsset(name) {
+    if (!name) return true;
+    const trimmed = name.trim();
+    return /예수금|현금|외화예수금|외화잔고|CMA|MMF|현금성자산|삼성신종종류형|예치금|원화예수금|외화예치금/i.test(trimmed);
+  }
+
+  let krxSearchKeyMap = {}; // pre-indexed search key -> master item
+  
+  // Helper to build normalized alphanumeric search key (case-insensitive, whitespace & symbol normalization)
+  function buildKrxSearchKey(str) {
+    if (!str) return '';
+    return str
+      .toLowerCase()
+      .replace(/[\s\(\)\[\]\_\-\,\.\/\+]/g, '');
+  }
+
+  // Official ETF brand renewals / aliases (KBSTAR <-> RISE, ARIRANG <-> PLUS, KINDEX <-> ACE, SMART <-> SOL)
+  const krxBrandAliases = [
+    ['kbstar', 'rise'],
+    ['arirang', 'plus'],
+    ['kindex', 'ace'],
+    ['smart', 'sol']
+  ];
+
+  function rebuildKrxSearchKeyIndex() {
+    krxSearchKeyMap = {};
+    for (const code in krxMasterDb) {
+      const item = krxMasterDb[code];
+      const sKey = buildKrxSearchKey(item.name);
+      if (!krxSearchKeyMap[sKey]) krxSearchKeyMap[sKey] = item;
+    }
+  }
+
+  // Load KRX Master Database (4,300+ items from krx_master.json with resilient fallback)
+  async function loadKrxMasterDatabase() {
+    if (krxMasterLoaded && Object.keys(krxMasterDb).length > 0) return krxMasterDb;
+    try {
+      const resp = await fetch('krx_master.json');
+      if (resp.ok) {
+        krxMasterDb = await resp.json();
+        krxMasterLoaded = true;
+        rebuildKrxSearchKeyIndex();
+        console.log(`[KRX] Successfully loaded ${Object.keys(krxMasterDb).length} items from krx_master.json`);
+        renderStockChipContainer();
+        return krxMasterDb;
+      }
+    } catch (e) {
+      console.warn('[KRX] Failed to fetch krx_master.json, utilizing built-in fallback:', e);
+    }
+
+    // Built-in emergency master fallback dictionary
+    krxMasterDb = {
+      "005930": { "code": "005930", "name": "삼성전자", "market": "KOSPI", "type": "STOCK" },
+      "005935": { "code": "005935", "name": "삼성전자우", "market": "KOSPI", "type": "STOCK" },
+      "000660": { "code": "000660", "name": "SK하이닉스", "market": "KOSPI", "type": "STOCK" },
+      "015760": { "code": "015760", "name": "한국전력", "market": "KOSPI", "type": "STOCK" },
+      "069500": { "code": "069500", "name": "KODEX 200", "market": "ETF", "type": "ETF" },
+      "278530": { "code": "278530", "name": "KODEX 200TR", "market": "ETF", "type": "ETF" },
+      "360750": { "code": "360750", "name": "TIGER 미국S&P500", "market": "ETF", "type": "ETF" },
+      "133690": { "code": "133690", "name": "TIGER 미국나스닥100", "market": "ETF", "type": "ETF" },
+      "379800": { "code": "379800", "name": "KODEX 미국나스닥100TR", "market": "ETF", "type": "ETF" },
+      "379810": { "code": "379810", "name": "KODEX 미국S&P500TR", "market": "ETF", "type": "ETF" },
+      "446720": { "code": "446720", "name": "SOL 미국배당다우존스", "market": "ETF", "type": "ETF" },
+      "411060": { "code": "411060", "name": "ACE KRX금현물", "market": "ETF", "type": "ETF" },
+      "091160": { "code": "091160", "name": "KODEX 반도체", "market": "ETF", "type": "ETF" },
+      "466950": { "code": "466950", "name": "SOL 반도체TOP3플러스", "market": "ETF", "type": "ETF" },
+      "245340": { "code": "245340", "name": "ACE 베트남VN30(합성)", "market": "ETF", "type": "ETF" },
+      "395160": { "code": "395160", "name": "KODEX 인도Nifty50", "market": "ETF", "type": "ETF" },
+      "364980": { "code": "364980", "name": "TIGER 미국우주테크", "market": "ETF", "type": "ETF" },
+      "465580": { "code": "465580", "name": "KODEX 미국AI전력핵심인프라", "market": "ETF", "type": "ETF" },
+      "474220": { "code": "474220", "name": "KODEX 금융고배당TOP10타겟위클리커버드콜", "market": "ETF", "type": "ETF" },
+      "482730": { "code": "482730", "name": "KODEX 200타겟위클리커버드콜", "market": "ETF", "type": "ETF" },
+      "426020": { "code": "426020", "name": "KoAct 코리아액티브", "market": "ETF", "type": "ETF" },
+      "446690": { "code": "446690", "name": "KODEX 로봇액티브", "market": "ETF", "type": "ETF" },
+      "449170": { "code": "449170", "name": "KODEX 원자력SMR", "market": "ETF", "type": "ETF" },
+      "453850": { "code": "453850", "name": "KODEX 한국부동산리츠인프라", "market": "ETF", "type": "ETF" },
+      "329200": { "code": "329200", "name": "TIGER 리츠부동산인프라", "market": "ETF", "type": "ETF" },
+      "429740": { "code": "429740", "name": "KODEX TDF2050액티브 적격", "market": "ETF", "type": "ETF" },
+      "429730": { "code": "429730", "name": "TIGER TDF2045 적격", "market": "ETF", "type": "ETF" },
+      "139280": { "code": "139280", "name": "TIGER 머니마켓액티브", "market": "ETF", "type": "ETF" },
+      "371460": { "code": "371460", "name": "TIGER 차이나테크TOP10", "market": "ETF", "type": "ETF" },
+      "144600": { "code": "144600", "name": "KODEX 은선물(H)", "market": "ETF", "type": "ETF" },
+      "457810": { "code": "457810", "name": "KODEX iShares미국하이일드액티브", "market": "ETF", "type": "ETF" },
+      "457820": { "code": "457820", "name": "KODEX iShares미국인플레이션국채액티브", "market": "ETF", "type": "ETF" },
+      "457830": { "code": "457830", "name": "KODEX iShares미국투자등급회사채액티브", "market": "ETF", "type": "ETF" },
+      "473460": { "code": "473460", "name": "KODEX 미국서학개미", "market": "ETF", "type": "ETF" },
+      "0163Y0": { "code": "0163Y0", "name": "KoAct 코스닥액티브", "market": "ETF", "type": "ETF" },
+      "0064K0": { "code": "0064K0", "name": "KODEX 금액티브", "market": "ETF", "type": "ETF" },
+      "0025N0": { "code": "0025N0", "name": "TIGER TDF2045", "market": "ETF", "type": "ETF" },
+      "0015B0": { "code": "0015B0", "name": "KoAct 미국나스닥성장기업액티브", "market": "ETF", "type": "ETF" }
+    };
+    krxMasterLoaded = true;
+    rebuildKrxSearchKeyIndex();
+    return krxMasterDb;
+  }
+
+  // Pure Authentic KRX Stock Matcher
+  function matchKrxStock(rawName) {
+    if (!rawName) return null;
+    const cleanName = rawName.trim();
+
+    // 1. Direct key match by exact name
+    for (const code in krxMasterDb) {
+      const item = krxMasterDb[code];
+      if (item.name === cleanName) {
+        return { code: item.code, name: item.name, market: item.market, type: item.type, isMatched: true, method: 'Exact' };
+      }
+    }
+
+    // 2. Normalized Search Key Exact Match (Spaces & Punctuation normalized)
+    const rawKey = buildKrxSearchKey(cleanName);
+    if (krxSearchKeyMap[rawKey]) {
+      const it = krxSearchKeyMap[rawKey];
+      return { code: it.code, name: it.name, market: it.market, type: it.type, isMatched: true, method: 'SearchKey' };
+    }
+
+    // 3. Official Brand Renewal Aliases (KBSTAR <-> RISE, ARIRANG <-> PLUS, KINDEX <-> ACE, SMART <-> SOL)
+    for (const [b1, b2] of krxBrandAliases) {
+      let altKey = rawKey;
+      if (altKey.includes(b1)) altKey = altKey.replace(b1, b2);
+      else if (altKey.includes(b2)) altKey = altKey.replace(b2, b1);
+      if (krxSearchKeyMap[altKey]) {
+        const it = krxSearchKeyMap[altKey];
+        return { code: it.code, name: it.name, market: it.market, type: it.type, isMatched: true, method: 'BrandAlias' };
+      }
+    }
+
+    // 4. Non-ticker / Unlisted instrument fallback (Displayed as unmatched)
+    return {
+      code: "KRX-" + Math.abs(cleanName.split('').reduce((a,b)=>{a=((a<<5)-a)+b.charCodeAt(0);return a&a},0)).toString().slice(0,4).padStart(4,'0'),
+      name: cleanName,
+      market: "KRX",
+      type: "STOCK",
+      isMatched: false,
+      method: 'Unmatched'
+    };
+  }
+
+  // Multi-source Fast Stock Time-Series Fetcher
+  async function fetchStockTimeSeriesMultiSource(matchedInfo, snapshotDates) {
+    const startTime = performance.now();
+    const code = matchedInfo.code;
+    const name = matchedInfo.name;
+
+    // Check memory & localStorage cache (v2 for 2000-day history)
+    const cacheKey = `js_krx_ts_v2_${code}`;
+    if (cachedKrxTimeSeries[code]) {
+      const elapsed = Math.round(performance.now() - startTime);
+      return {
+        code,
+        name,
+        market: matchedInfo.market,
+        source: '메모리 캐시',
+        latencyMs: elapsed,
+        prices: cachedKrxTimeSeries[code],
+        status: 'cached'
+      };
+    }
+
+    try {
+      const localStored = localStorage.getItem(cacheKey);
+      if (localStored) {
+        const parsed = JSON.parse(localStored);
+        if (parsed && typeof parsed === 'object') {
+          cachedKrxTimeSeries[code] = parsed;
+          const elapsed = Math.round(performance.now() - startTime);
+          return {
+            code,
+            name,
+            market: matchedInfo.market,
+            source: '로컬 스토리지 캐시',
+            latencyMs: elapsed,
+            prices: parsed,
+            status: 'cached'
+          };
+        }
+      }
+    } catch(e) {}
+
+    // Only try network fetch for valid 6-char KRX stock/ETF codes (supports alphanumeric tickers like 0163Y0)
+    if (matchedInfo.isMatched && /^[0-9A-Za-z]{6}$/.test(code)) {
+      // 1. Try Naver FChart XML API via CORS proxy with aggressive timeout (2.0s) - count=2000 for 8-year history
+      const targetUrl = `https://fchart.stock.naver.com/sise.nhn?symbol=${code}&timeframe=day&count=2000&requestType=0`;
+      const proxyUrls = [
+        `/api/proxy?url=${encodeURIComponent(targetUrl)}`,
+        targetUrl,
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+        `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`
+      ];
+
+      for (const pUrl of proxyUrls) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 2000);
+          const resp = await fetch(pUrl, { signal: controller.signal });
+          clearTimeout(timeoutId);
+
+          if (resp.ok) {
+            const xmlText = await resp.text();
+            if (xmlText.includes('<item data=')) {
+              const priceMap = {};
+              const regex = /<item data="(\d{8})\|(\d+(?:\.\d+)?)\|(\d+(?:\.\d+)?)\|(\d+(?:\.\d+)?)\|(\d+(?:\.\d+)?)/g;
+              let match;
+              let candleCount = 0;
+              while ((match = regex.exec(xmlText)) !== null) {
+                const rawD = match[1];
+                const dStr = `${rawD.slice(0,4)}-${rawD.slice(4,6)}-${rawD.slice(6,8)}`;
+                const closePrice = parseFloat(match[5]);
+                priceMap[dStr] = closePrice;
+                candleCount++;
+              }
+
+              if (candleCount > 0) {
+                cachedKrxTimeSeries[code] = priceMap;
+                try { localStorage.setItem(cacheKey, JSON.stringify(priceMap)); } catch(e){}
+                const elapsed = Math.round(performance.now() - startTime);
+                return {
+                  code,
+                  name,
+                  market: matchedInfo.market,
+                  source: `네이버 증권 시세 API (${candleCount}개)`,
+                  latencyMs: elapsed,
+                  prices: priceMap,
+                  status: 'success'
+                };
+              }
+            }
+          }
+        } catch(netErr) {
+          // Continue to next fallback
+        }
+      }
+    }
+
+    // Fallback: Construct price series from internal snapshot history (100% resilient)
+    const fallbackPrices = {};
+    rawDatasets.forEach(ds => {
+      const it = (ds.items || []).find(x => x.name.trim() === matchedInfo.name.trim() || x.name.trim() === name);
+      if (it) {
+        const p = it.price > 0 ? it.price : (it.qty > 0 ? Math.round(it.eval / it.qty) : null);
+        if (p) fallbackPrices[ds.date] = p;
+      }
+    });
+
+    cachedKrxTimeSeries[code] = fallbackPrices;
+    const elapsed = Math.round(performance.now() - startTime);
+    return {
+      code,
+      name,
+      market: matchedInfo.market,
+      source: '스냅샷 내부 시세 백업',
+      latencyMs: elapsed,
+      prices: fallbackPrices,
+      status: 'fallback'
+    };
+  }
+
+  // ==========================================
+  // Stock Price & Similarity Analysis Module
+  // ==========================================
+  let selectedStockAnalysisName = "";
+  let stockChartMode = "normalized"; // "normalized" | "actual"
+  let activeCorrSubTab = "high_similarity"; // "high_similarity" | "hedge_diversity" | "heatmap" | "custom_duo"
+  let saStartYear = "2024";
+  let saStartMonth = "01";
+  let saIntervalType = "monthly"; // "monthly" | "quarterly"
+  let saSelectedStockNamesSet = null; // Set of selected stock names for analysis
+  let isGraphDrawn = false; // Flag indicating if user clicked Sync & Draw button
+  let saIsolatedStockName = null; // null: show all stocks, name: isolate single stock + benchmarks
+  let stockAnalysisChartInstance = null;
+  let duoChartInstance = null;
+  let duoSelectedStockA = "";
+  let duoSelectedStockB = "";
+
+  const stockColorPalette = ['#6366f1', '#06b6d4', '#ec4899', '#8b5cf6', '#10b981', '#f59e0b', '#3b82f6', '#f43f5e', '#14b8a6', '#a855f7'];
+
+  function findNearestPrice(priceMap, dateStr) {
+    if (!priceMap || Object.keys(priceMap).length === 0) return null;
+    if (priceMap[dateStr] !== undefined && priceMap[dateStr] !== null) return priceMap[dateStr];
+    const dates = Object.keys(priceMap).sort();
+    let best = null;
+    for (const d of dates) {
+      if (d <= dateStr) best = d;
+      else break;
+    }
+    if (!best && dates.length > 0) best = dates[0];
+    return best ? priceMap[best] : null;
+  }
+
+  // Standard Benchmark series mapped across snapshot dates
+  function getBenchmarkDataMap() {
+    const sp500Prices = cachedKrxTimeSeries['360750'] || {
+      "2026-06-28": 5464.6,
+      "2026-09-12": 5626.0
+    };
+    const kospi200Prices = cachedKrxTimeSeries['KPI200'] || {
+      "2026-06-28": 370.5,
+      "2026-09-12": 352.0
+    };
+    return { sp500Prices, kospi200Prices };
+  }
+
+  // Handle Sync Stock Prices & Draw Chart Button Click
+  async function handleSyncAndDraw() {
+    isGraphDrawn = true;
+    saIsolatedStockName = null; // Reset isolation mode when clicking sync button
+    const btn = document.getElementById('btnSyncAndDraw');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<i data-lucide="refresh-cw" class="animate-spin"></i><span>KRX 4,300+ 마스터 대조 & 초고속 동기화 중...</span>';
+      if (window.lucide) window.lucide.createIcons();
+    }
+
+    const syncStartTime = performance.now();
+
+    // Ensure KRX master DB is loaded
+    await loadKrxMasterDatabase();
+
+    // Collect selected non-cash stocks
+    const allHeld = getAllHeldStockNames();
+    if (saSelectedStockNamesSet === null) {
+      saSelectedStockNamesSet = new Set(allHeld.map(s => s.name));
+    }
+
+    const targetStocks = allHeld.filter(s => saSelectedStockNamesSet.has(s.name));
+    
+    // Show HUD
+    const hudEl = document.getElementById('saKrxSyncHud');
+    const pillsContainer = document.getElementById('saKrxStockPillsContainer');
+    const masterStatusEl = document.getElementById('saKrxMasterStatus');
+    const speedTextEl = document.getElementById('saKrxSpeedText');
+
+    if (hudEl) hudEl.style.display = 'none'; // Hidden by user request
+    if (pillsContainer) pillsContainer.innerHTML = '';
+
+    // Match all target stocks against KRX Master DB
+    const matchedTargets = targetStocks.map(s => ({
+      original: s.name,
+      match: matchKrxStock(s.name)
+    }));
+
+    // Fetch in parallel for ALL targets + benchmark series (360750 S&P 500, KPI200 KOSPI 200)
+    const fetchPromises = matchedTargets.map(item => 
+      fetchStockTimeSeriesMultiSource(item.match, rawDatasets.map(d => d.date))
+    );
+    fetchPromises.push(fetchStockTimeSeriesMultiSource({ code: '360750', name: 'S&P 500', market: 'ETF', isMatched: true }, rawDatasets.map(d => d.date)));
+    fetchPromises.push(fetchStockTimeSeriesMultiSource({ code: 'KPI200', name: 'KOSPI 200', market: 'INDEX', isMatched: true }, rawDatasets.map(d => d.date)));
+
+    const results = await Promise.allSettled(fetchPromises);
+    const totalDuration = Math.round(performance.now() - syncStartTime);
+
+    // Populate HUD pills for all synced targets
+    if (pillsContainer) {
+      results.forEach((res, idx) => {
+        const itemInfo = matchedTargets[idx];
+        const resData = res.status === 'fulfilled' ? res.value : {
+          code: itemInfo.match.code,
+          name: itemInfo.original,
+          market: itemInfo.match.market,
+          source: '스냅샷 내부 시세 에러',
+          latencyMs: 10,
+          status: 'error'
+        };
+
+        const pill = document.createElement('div');
+        pill.className = 'krx-pill-card';
+        const mClass = (resData.market || 'krx').toLowerCase();
+        
+        pill.innerHTML = `
+          <span class="krx-pill-market ${mClass}">${resData.market}</span>
+          <span class="krx-pill-code">${resData.code}</span>
+          <span class="krx-pill-name">${resData.name}</span>
+          <span class="krx-pill-source ${resData.status}">
+            <i data-lucide="${resData.status === 'cached' ? 'zap' : 'check-circle'}" style="width: 12px; height: 12px;"></i>
+            ${resData.source} (${resData.latencyMs}ms)
+          </span>
+        `;
+        pillsContainer.appendChild(pill);
+      });
+      if (window.lucide) window.lucide.createIcons();
+    }
+
+    if (masterStatusEl) {
+      masterStatusEl.innerText = `KRX 상장 ${Object.keys(krxMasterDb).length.toLocaleString()}개 종목 대조 완료 · 선택된 총 ${matchedTargets.length}개 종목 차트 시계열 확보 완료`;
+    }
+    if (speedTextEl) {
+      speedTextEl.innerText = `총 동기화 완료: ${totalDuration}ms`;
+    }
+
+    isGraphDrawn = true;
+
+    const emptyPrompt = document.getElementById('saEmptyPrompt');
+    const chartWrapper = document.getElementById('saChartWrapper');
+    if (emptyPrompt) emptyPrompt.style.display = 'none';
+    if (chartWrapper) chartWrapper.style.display = 'block';
+
+    const titleEl = document.getElementById('saChartSectionTitle');
+    if (titleEl) {
+      titleEl.innerText = `${saIntervalType === 'quarterly' ? '분기별' : '월간'} 주가 변동 트렌드 (${saStartYear}년 ${parseInt(saStartMonth)}월 기준)`;
+    }
+
+    renderStockAnalysisTab();
+
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<i data-lucide="line-chart"></i><span>주가 동기화 및 그래프 그리기 완료 (재동기화)</span>';
+      if (window.lucide) window.lucide.createIcons();
+    }
+
+    const chartSection = document.getElementById('saChartSection');
+    if (chartSection) {
+      chartSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
+  // Handle Refresh Stocks & Re-sync Ticker Matching
+  async function handleRefreshStocks() {
+    const btn1 = document.getElementById('btnSaRefreshStocks');
+    const btn2 = document.getElementById('btnSaRefreshStocksHeader');
+    const icon1 = btn1 ? btn1.querySelector('i') : null;
+    const icon2 = btn2 ? btn2.querySelector('i') : null;
+
+    if (icon1) icon1.classList.add('animate-spin');
+    if (icon2) icon2.classList.add('animate-spin');
+
+    // 1. Ensure KRX master DB is fresh and SearchKey index rebuilt
+    await loadKrxMasterDatabase();
+
+    // 2. Re-extract all non-cash held stocks across snapshots
+    const allStocks = getAllHeldStockNames();
+
+    if (saSelectedStockNamesSet === null || saSelectedStockNamesSet.size === 0) {
+      saSelectedStockNamesSet = new Set(allStocks.map(s => s.name));
+    } else {
+      // Keep existing user selections and add any newly discovered stocks
+      allStocks.forEach(s => {
+        if (!saSelectedStockNamesSet.has(s.name)) {
+          saSelectedStockNamesSet.add(s.name);
+        }
+      });
+    }
+
+    // 3. Re-render stock selection chips with updated ticker matched / unmatched status
+    renderStockChipContainer();
+
+    if (isGraphDrawn) {
+      renderStockAnalysisChart();
+      renderStockCorrelationContent();
+    }
+
+    setTimeout(() => {
+      if (icon1) icon1.classList.remove('animate-spin');
+      if (icon2) icon2.classList.remove('animate-spin');
+    }, 450);
+  }
+
+  // Get all unique non-cash held stock items across all snapshots
+  function getAllHeldStockNames() {
+    const map = {};
+    rawDatasets.forEach(ds => {
+      (ds.items || []).forEach(it => {
+        const name = (it.name || '').trim();
+        if (!name || isCashLikeAsset(name)) return;
+        if (!map[name]) {
+          map[name] = { name: name, theme: detectStockTheme(name) };
+        }
+      });
+    });
+    return Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  // Render Stock Chips for Multiselect
+  function renderStockChipContainer() {
+    const chipContainer = document.getElementById('saStockChipContainer');
+    if (!chipContainer) return;
+
+    const allStocks = getAllHeldStockNames();
+    if (saSelectedStockNamesSet === null) {
+      saSelectedStockNamesSet = new Set(allStocks.map(s => s.name));
+    }
+
+    const countBadge = document.getElementById('saSelectedStockCountBadge');
+    if (countBadge) {
+      countBadge.innerText = `${saSelectedStockNamesSet.size} / ${allStocks.length}개 선택됨`;
+    }
+
+    chipContainer.innerHTML = '';
+
+    if (allStocks.length === 0) {
+      chipContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 13px;">보유 종목이 없습니다.</span>';
+      return;
+    }
+
+    allStocks.forEach(stock => {
+      const isChecked = saSelectedStockNamesSet.has(stock.name);
+      const matched = matchKrxStock(stock.name);
+      const isTickerMatched = Boolean(matched && matched.isMatched);
+
+      const label = document.createElement('label');
+      label.className = `stock-chip ${isChecked ? 'active' : ''} ${isTickerMatched ? '' : 'unmatched-ticker'}`;
+      if (!isTickerMatched) {
+        label.title = `${stock.name}: KRX 상장 종목코드(티커) 미매칭 (버튼 아래 차트에서 제외됨)`;
+      }
+
+      label.innerHTML = `
+        <input type="checkbox" value="${stock.name}" ${isChecked ? 'checked' : ''}>
+        <span class="chip-name">${stock.name}</span>
+        <span class="chip-theme">${stock.theme}</span>
+        ${isTickerMatched ? '' : '<span class="chip-unmatched-badge" title="티커 미매칭 (차트 미포함)">미동기화</span>'}
+      `;
+
+      const chk = label.querySelector('input');
+      chk.addEventListener('change', (e) => {
+        if (e.target.checked) {
+          saSelectedStockNamesSet.add(stock.name);
+        } else {
+          saSelectedStockNamesSet.delete(stock.name);
+        }
+        renderStockChipContainer();
+        if (isGraphDrawn) {
+          renderStockAnalysisChart();
+          renderStockCorrelationContent();
+        }
+      });
+
+      chipContainer.appendChild(label);
+    });
+  }
+
+  // Helper to find closest value in a date-keyed object
+  function getClosestValue(mapObj, targetDateStr) {
+    if (!mapObj) return null;
+    if (mapObj[targetDateStr] !== undefined && mapObj[targetDateStr] !== null) return mapObj[targetDateStr];
+    
+    let closestDate = null;
+    for (const d of Object.keys(mapObj).sort()) {
+      if (d <= targetDateStr) {
+        closestDate = d;
+      } else {
+        break;
+      }
+    }
+    return closestDate ? mapObj[closestDate] : null;
+  }
+
+  // Extract unique stock series across all snapshots with period, interval & stock selection filter
+  function extractStockSeriesMap() {
+    const startYearEl = document.getElementById('saStartYearSelect');
+    const startMonthEl = document.getElementById('saStartMonthSelect');
+    if (startYearEl) saStartYear = startYearEl.value;
+    if (startMonthEl) saStartMonth = startMonthEl.value;
+
+    const intervalRad = document.querySelector('input[name="saIntervalType"]:checked');
+    if (intervalRad) saIntervalType = intervalRad.value;
+
+    const allStocks = getAllHeldStockNames();
+    if (saSelectedStockNamesSet === null) {
+      saSelectedStockNamesSet = new Set(allStocks.map(s => s.name));
+    }
+
+    const startYearInt = parseInt(saStartYear, 10);
+    const startMonthInt = parseInt(saStartMonth, 10);
+    const today = new Date();
+    
+    const targetDates = [];
+    if (saIntervalType === 'quarterly') {
+        let q = Math.ceil(startMonthInt / 3);
+        let currY = startYearInt;
+        while (true) {
+            let lastDay = new Date(currY, q * 3, 0);
+            if (lastDay > today) lastDay = today;
+            const dStr = `${lastDay.getFullYear()}-${String(lastDay.getMonth()+1).padStart(2,'0')}-${String(lastDay.getDate()).padStart(2,'0')}`;
+            targetDates.push(dStr);
+            
+            if (lastDay.getTime() === today.getTime() || (currY === today.getFullYear() && q === Math.ceil((today.getMonth()+1)/3))) {
+                break;
+            }
+            q++;
+            if (q > 4) { q = 1; currY++; }
+        }
+    } else {
+        let currM = startMonthInt;
+        let currY = startYearInt;
+        while (true) {
+            let lastDay = new Date(currY, currM, 0);
+            if (lastDay > today) lastDay = today;
+            const dStr = `${lastDay.getFullYear()}-${String(lastDay.getMonth()+1).padStart(2,'0')}-${String(lastDay.getDate()).padStart(2,'0')}`;
+            targetDates.push(dStr);
+            
+            if (lastDay.getTime() === today.getTime() || (currY === today.getFullYear() && currM === today.getMonth() + 1)) {
+                break;
+            }
+            currM++;
+            if (currM > 12) { currM = 1; currY++; }
+        }
+    }
+
+    const stockMap = {};
+    const dates = targetDates;
+
+    // Pre-build snapshot lookup maps for evals, buys, etc. (since these are not in cachedKrxTimeSeries)
+    const snapshotDataMap = {};
+    rawDatasets.forEach(ds => {
+      (ds.items || []).forEach(it => {
+        const name = (it.name || '').trim();
+        if (!name) return;
+        if (!snapshotDataMap[name]) snapshotDataMap[name] = { evals: {}, buys: {}, profits: {}, returns: {} };
+        snapshotDataMap[name].evals[ds.date] = it.eval || 0;
+        snapshotDataMap[name].buys[ds.date] = it.buy || 0;
+        snapshotDataMap[name].profits[ds.date] = it.profit || 0;
+        snapshotDataMap[name].returns[ds.date] = it.returnRate || 0;
+      });
+    });
+
+    saSelectedStockNamesSet.forEach(name => {
+      // Strict cash-like asset filter
+      if (isCashLikeAsset(name)) return;
+
+      const matched = matchKrxStock(name);
+      if (!matched) return;
+
+      if (!stockMap[name]) {
+        stockMap[name] = {
+          name: name,
+          code: matched.code,
+          market: matched.market,
+          theme: detectStockTheme(name),
+          prices: {},
+          evals: {},
+          buys: {},
+          profits: {},
+          returns: {}
+        };
+      }
+
+      const cachedPrices = cachedKrxTimeSeries[matched.code] || {};
+      const snapData = snapshotDataMap[name] || { evals: {}, buys: {}, profits: {}, returns: {} };
+
+      dates.forEach(dStr => {
+        // Find closest price
+        const price = getClosestValue(cachedPrices, dStr);
+        stockMap[name].prices[dStr] = price;
+        
+        // Find closest eval, buy, etc from snapshots
+        stockMap[name].evals[dStr] = getClosestValue(snapData.evals, dStr) || 0;
+        stockMap[name].buys[dStr] = getClosestValue(snapData.buys, dStr) || 0;
+        stockMap[name].profits[dStr] = getClosestValue(snapData.profits, dStr) || 0;
+        stockMap[name].returns[dStr] = getClosestValue(snapData.returns, dStr) || 0;
+      });
+
+      // Exclude stocks that have no valid prices at all across the selected dates
+      const hasValidPrice = dates.some(dStr => stockMap[name].prices[dStr] !== null && stockMap[name].prices[dStr] !== undefined);
+      if (!hasValidPrice) {
+        delete stockMap[name];
+      }
+    });
+
+    return { stockMap, dates };
+  }
+
+  // Detect stock thematic tag
+  function detectStockTheme(name) {
+    const themes = [
+      { tag: "S&P 500 지수", regex: /S&P|s&p|에스앤피/i },
+      { tag: "나스닥 100 지수", regex: /나스닥|NASDAQ|nasdaq/i },
+      { tag: "TDF 연금 자산", regex: /TDF|tdf/i },
+      { tag: "금/은 원자재", regex: /금현물|금액티브|KRX금|은선물/i },
+      { tag: "반도체 테마", regex: /반도체|SOXX|칩/i },
+      { tag: "로봇/휴머노이드", regex: /로봇|휴머노이드/i },
+      { tag: "인도 시장", regex: /인도|Nifty/i },
+      { tag: "채권/금리 자산", regex: /국고채|회사채|하이일드|인플레이션국채|채권/i },
+      { tag: "우주/항공 테크", regex: /우주테크|우주/i },
+      { tag: "고배당/커버드콜", regex: /배당|커버드콜|타겟위클리/i },
+      { tag: "베트남/신흥국", regex: /베트남|VN30/i },
+      { tag: "부동산/리츠", regex: /리츠|부동산/i },
+    ];
+
+    for (const t of themes) {
+      if (t.regex.test(name)) return t.tag;
+    }
+    return "일반 주식 / ETF";
+  }
+
+  // Compute Pearson Correlation between two stock series
+  function computeStockPearsonCorrelation(stockA, stockB, dates) {
+    const returnsA = [];
+    const returnsB = [];
+
+    const pricesA = dates.map(d => stockA.prices[d] || null);
+    const pricesB = dates.map(d => stockB.prices[d] || null);
+
+    for (let i = 1; i < dates.length; i++) {
+      const pA0 = pricesA[i - 1];
+      const pA1 = pricesA[i];
+      const pB0 = pricesB[i - 1];
+      const pB1 = pricesB[i];
+
+      if (pA0 && pA1 && pB0 && pB1) {
+        returnsA.push((pA1 - pA0) / pA0);
+        returnsB.push((pB1 - pB0) / pB0);
+      }
+    }
+
+    if (returnsA.length === 0) {
+      return 0.0;
+    }
+
+    if (returnsA.length === 1) {
+      const rA = returnsA[0];
+      const rB = returnsB[0];
+
+      if ((rA >= 0 && rB >= 0) || (rA <= 0 && rB <= 0)) {
+        const maxVal = Math.max(Math.abs(rA), Math.abs(rB), 0.001);
+        const diff = Math.abs(rA - rB) / maxVal;
+        return parseFloat(Math.max(0.2, 1.0 - Math.min(0.8, diff)).toFixed(2));
+      } else {
+        const diff = Math.abs(rA - rB);
+        return parseFloat((-0.5 - Math.min(0.4, diff * 2)).toFixed(2));
+      }
+    }
+
+    const n = returnsA.length;
+    const meanA = returnsA.reduce((sum, v) => sum + v, 0) / n;
+    const meanB = returnsB.reduce((sum, v) => sum + v, 0) / n;
+
+    let num = 0;
+    let denA = 0;
+    let denB = 0;
+
+    for (let i = 0; i < n; i++) {
+      const diffA = returnsA[i] - meanA;
+      const diffB = returnsB[i] - meanB;
+      num += diffA * diffB;
+      denA += diffA * diffA;
+      denB += diffB * diffB;
+    }
+
+    const den = Math.sqrt(denA * denB);
+    if (den === 0) return 0.0;
+
+    const r = Math.max(-1, Math.min(1, num / den));
+    return parseFloat(r.toFixed(2));
+  }
+
+  // Render main stock analysis tab
+  function renderStockAnalysisTab() {
+    renderStockChipContainer();
+
+    const emptyPrompt = document.getElementById('saEmptyPrompt');
+    const chartWrapper = document.getElementById('saChartWrapper');
+
+    if (!isGraphDrawn) {
+      if (emptyPrompt) emptyPrompt.style.display = 'block';
+      if (chartWrapper) chartWrapper.style.display = 'none';
+      if (window.lucide) window.lucide.createIcons();
+      return;
+    }
+
+    if (emptyPrompt) emptyPrompt.style.display = 'none';
+    if (chartWrapper) chartWrapper.style.display = 'block';
+
+    const { stockMap, dates } = extractStockSeriesMap();
+    const stockNames = Object.keys(stockMap).sort();
+
+    // 1. Populate Focus Stock Select Dropdown
+    const selectEl = document.getElementById('stockAnalysisSelect');
+    if (selectEl) {
+      const currVal = selectEl.value;
+      selectEl.innerHTML = '';
+      stockNames.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = `${name} (${stockMap[name].theme})`;
+        selectEl.appendChild(opt);
+      });
+
+      if (currVal && stockNames.includes(currVal)) {
+        selectEl.value = currVal;
+        selectedStockAnalysisName = currVal;
+      } else {
+        selectEl.value = stockNames[0] || '';
+        selectedStockAnalysisName = stockNames[0] || '';
+      }
+    }
+
+    // 2. Render Stock Legend Chips
+    renderStockLegendChips(stockNames);
+
+    // 3. Render Main Stock Analysis Chart & KPI
+    renderStockAnalysisChart();
+
+    // 4. Render Correlation Content
+    renderStockCorrelationContent();
+
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  // Render Legend Chips for Multi-Stock Trend Chart (With Isolation & Toggle Support)
+  function renderStockLegendChips(stockNames) {
+    const legendContainer = document.getElementById('saStockLegendContainer');
+    if (!legendContainer) return;
+    legendContainer.innerHTML = '';
+
+    // "전체 종목 비교" Reset Chip
+    const resetChip = document.createElement('div');
+    const isAllActive = saIsolatedStockName === null;
+    resetChip.className = `stock-legend-chip ${isAllActive ? 'active' : 'dimmed'}`;
+    resetChip.style.borderRadius = '8px';
+    resetChip.innerHTML = `<i data-lucide="layers" style="width: 13px; height: 13px; color: var(--accent-cyan);"></i><span>전체 종목 비교</span>`;
+    resetChip.addEventListener('click', () => {
+      saIsolatedStockName = null;
+      renderStockLegendChips(stockNames);
+      renderStockAnalysisChart();
+    });
+    legendContainer.appendChild(resetChip);
+
+    stockNames.forEach((name, idx) => {
+      const color = stockColorPalette[idx % stockColorPalette.length];
+      const isIsolated = saIsolatedStockName === name;
+      const isDimmed = saIsolatedStockName !== null && !isIsolated;
+
+      const chip = document.createElement('div');
+      chip.className = `stock-legend-chip ${isIsolated ? 'isolated' : (isDimmed ? 'dimmed' : 'active')}`;
+      chip.innerHTML = `<span class="dot" style="background-color: ${color};"></span><span>${name}</span>${isIsolated ? '<span style="font-size:10px; background:rgba(56,189,248,0.25); color:#38bdf8; padding:1px 6px; border-radius:10px; margin-left:2px; font-weight:700;">단독</span>' : ''}`;
+
+      chip.addEventListener('click', () => {
+        if (saIsolatedStockName === name) {
+          // Toggle off: return to all stocks
+          saIsolatedStockName = null;
+        } else {
+          // Toggle on: isolate this stock + benchmarks
+          saIsolatedStockName = name;
+          selectedStockAnalysisName = name;
+          const selectEl = document.getElementById('stockAnalysisSelect');
+          if (selectEl) selectEl.value = name;
+        }
+        renderStockLegendChips(stockNames);
+        renderStockAnalysisChart();
+      });
+
+      legendContainer.appendChild(chip);
+    });
+
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  // Render Individual & Multi-Stock vs Benchmarks Chart
+  function renderStockAnalysisChart() {
+    const selectEl = document.getElementById('stockAnalysisSelect');
+    if (selectEl && selectEl.value) {
+      selectedStockAnalysisName = selectEl.value;
+    }
+
+    const modeSelectEl = document.getElementById('stockChartModeSelect');
+    if (modeSelectEl) {
+      stockChartMode = modeSelectEl.value;
+    }
+
+    const chkSp500 = document.getElementById('chkSp500')?.checked ?? true;
+    const chkKospi200 = document.getElementById('chkKospi200')?.checked ?? true;
+
+    const { stockMap, dates } = extractStockSeriesMap();
+    const stockNames = Object.keys(stockMap).sort();
+    if (stockNames.length === 0) return;
+
+    const stockData = stockMap[selectedStockAnalysisName] || stockMap[stockNames[0]];
+    if (!stockData) return;
+
+    const { sp500Prices, kospi200Prices } = getBenchmarkDataMap();
+
+    // Update KPI Cards for Focus Stock
+    const firstDate = dates[0];
+    const latestDate = dates[dates.length - 1];
+
+    let p0 = null;
+    for (const d of dates) {
+      if (stockData.prices[d] !== null && stockData.prices[d] !== undefined) {
+        p0 = stockData.prices[d]; break;
+      }
+    }
+    const pLatest = stockData.prices[latestDate];
+
+    let stockReturnPct = 0;
+    if (p0 && p0 > 0 && pLatest && pLatest > 0) {
+      stockReturnPct = ((pLatest - p0) / p0) * 100;
+    }
+
+    const sp0 = findNearestPrice(sp500Prices, firstDate) || 5464.6;
+    const spLatest = findNearestPrice(sp500Prices, latestDate) || sp0;
+    const sp500ReturnPct = sp0 > 0 ? ((spLatest - sp0) / sp0) * 100 : 0;
+
+    const kp0 = findNearestPrice(kospi200Prices, firstDate) || 370.5;
+    const kpLatest = findNearestPrice(kospi200Prices, latestDate) || kp0;
+    const kospi200ReturnPct = kp0 > 0 ? ((kpLatest - kp0) / kp0) * 100 : 0;
+
+    const sp500Diff = stockReturnPct - sp500ReturnPct;
+    const kospi200Diff = stockReturnPct - kospi200ReturnPct;
+
+    const stockNameEl = document.getElementById('saKpiStockName');
+    if (stockNameEl) stockNameEl.innerText = `${stockData.name} 기간 수익률`;
+
+    const retValEl = document.getElementById('saKpiStockReturnVal');
+    if (retValEl) {
+      retValEl.innerText = formatPercent(stockReturnPct);
+      retValEl.style.color = stockReturnPct >= 0 ? 'var(--profit-green)' : 'var(--loss-red)';
+    }
+
+    const spDiffEl = document.getElementById('saKpiSp500DiffVal');
+    if (spDiffEl) {
+      const sign = sp500Diff >= 0 ? '+' : '';
+      spDiffEl.innerText = `${sign}${sp500Diff.toFixed(1)}%p`;
+      spDiffEl.style.color = sp500Diff >= 0 ? '#f59e0b' : 'var(--loss-red)';
+    }
+
+    const kpDiffEl = document.getElementById('saKpiKospi200DiffVal');
+    if (kpDiffEl) {
+      const sign = kospi200Diff >= 0 ? '+' : '';
+      kpDiffEl.innerText = `${sign}${kospi200Diff.toFixed(1)}%p`;
+      kpDiffEl.style.color = kospi200Diff >= 0 ? '#10b981' : 'var(--loss-red)';
+    }
+
+    const themeValEl = document.getElementById('saKpiThemeVal');
+    if (themeValEl) themeValEl.innerText = stockData.theme;
+
+    // Chart Datasets for All Selected Stocks
+    const canvasCtx = document.getElementById('stockAnalysisChart').getContext('2d');
+    if (stockAnalysisChartInstance) stockAnalysisChartInstance.destroy();
+
+    const chartDatasets = [];
+
+    stockNames.forEach((sName, idx) => {
+      // If a single stock is toggled ON (isolated), SKIP all other stocks so ONLY the toggled stock + benchmarks are rendered!
+      if (saIsolatedStockName !== null && sName !== saIsolatedStockName) {
+        return;
+      }
+
+      const sData = stockMap[sName];
+      const isFocus = sName === stockData.name;
+      const color = stockColorPalette[idx % stockColorPalette.length];
+      
+      let basePrice = null;
+      for (const d of dates) {
+        if (sData.prices[d] !== null && sData.prices[d] !== undefined) {
+          basePrice = sData.prices[d]; break;
+        }
+      }
+      if (!basePrice) basePrice = 1;
+
+      const seriesPoints = dates.map(d => {
+        const price = sData.prices[d];
+        if (price === null || price === undefined) return null;
+        if (stockChartMode === 'actual') return price;
+        return basePrice > 0 ? parseFloat((((price - basePrice) / basePrice) * 100).toFixed(2)) : 0;
+      });
+
+      chartDatasets.push({
+        label: sName,
+        data: seriesPoints,
+        borderColor: color,
+        backgroundColor: color + '22',
+        borderWidth: isFocus ? 4 : 2,
+        tension: 0.3,
+        pointRadius: isFocus ? 6 : 4,
+        fill: false
+      });
+    });
+
+    // S&P 500 Line
+    if (chkSp500) {
+      const spData = dates.map(d => {
+        const spP = findNearestPrice(sp500Prices, d) || sp0;
+        if (stockChartMode === 'actual') return spP;
+        return parseFloat((((spP - sp0) / sp0) * 100).toFixed(2));
+      });
+
+      chartDatasets.push({
+        label: 'S&P 500 지수',
+        data: spData,
+        borderColor: '#f59e0b',
+        borderDash: [5, 5],
+        borderWidth: 2,
+        tension: 0.3,
+        pointRadius: 4,
+        fill: false
+      });
+    }
+
+    // KOSPI 200 Line
+    if (chkKospi200) {
+      const kpData = dates.map(d => {
+        const kpP = findNearestPrice(kospi200Prices, d) || kp0;
+        if (stockChartMode === 'actual') return kpP;
+        return parseFloat((((kpP - kp0) / kp0) * 100).toFixed(2));
+      });
+
+      chartDatasets.push({
+        label: 'KOSPI 200 지수',
+        data: kpData,
+        borderColor: '#10b981',
+        borderDash: [3, 3],
+        borderWidth: 2,
+        tension: 0.3,
+        pointRadius: 4,
+        fill: false
+      });
+    }
+
+    try {
+      stockAnalysisChartInstance = new Chart(canvasCtx, {
+        type: 'line',
+        data: {
+          labels: dates,
+          datasets: chartDatasets
+        },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: 'nearest',
+          intersect: true
+        },
+        plugins: {
+          datalabels: { display: false },
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                let label = ctx.dataset.label || '';
+                if (label) label += ': ';
+                label += ctx.parsed.y + (stockChartMode === 'actual' ? ' ₩' : '%');
+                return label;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { maxTicksLimit: 12 }
+          },
+          y: {
+            position: 'right',
+            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+            ticks: {
+              callback: function(value) {
+                return value + (stockChartMode === 'actual' ? ' ₩' : '%');
+              }
+            }
+          }
+        }
+      }
+    });
+    } catch(err) {
+      document.getElementById('saStockLegendChips').innerHTML += `<div style="color:var(--loss-red); font-weight:bold; padding:10px;">차트 렌더링 에러: ${err.message}</div>`;
+      console.error(err);
+    }
+  }
+
+  // Group stocks into connected correlation clusters (threshold r >= 0.60)
+  function clusterCorrelatedStocks(pairs, stockMap) {
+    const adj = {};
+    pairs.forEach(p => {
+      const a = p.stockA.name;
+      const b = p.stockB.name;
+      if (!adj[a]) adj[a] = new Set();
+      if (!adj[b]) adj[b] = new Set();
+      adj[a].add(b);
+      adj[b].add(a);
+    });
+
+    const visited = new Set();
+    const clusters = [];
+
+    Object.keys(adj).forEach(startNode => {
+      if (visited.has(startNode)) return;
+
+      const component = [];
+      const queue = [startNode];
+      visited.add(startNode);
+
+      while (queue.length > 0) {
+        const curr = queue.shift();
+        component.push(curr);
+        if (adj[curr]) {
+          adj[curr].forEach(neighbor => {
+            if (!visited.has(neighbor)) {
+              visited.add(neighbor);
+              queue.push(neighbor);
+            }
+          });
+        }
+      }
+
+      if (component.length >= 2) {
+        const compSet = new Set(component);
+        const internalPairs = pairs.filter(
+          p => compSet.has(p.stockA.name) && compSet.has(p.stockB.name)
+        ).sort((a, b) => b.r - a.r);
+
+        const sumR = internalPairs.reduce((acc, p) => acc + p.r, 0);
+        const avgR = internalPairs.length > 0 ? sumR / internalPairs.length : 0;
+        const maxR = internalPairs.length > 0 ? Math.max(...internalPairs.map(p => p.r)) : 0;
+
+        clusters.push({
+          stockNames: component,
+          stocks: component.map(name => stockMap[name]).filter(Boolean),
+          internalPairs: internalPairs,
+          avgR: avgR,
+          maxR: maxR
+        });
+      }
+    });
+
+    clusters.sort((a, b) => {
+      if (b.stockNames.length !== a.stockNames.length) {
+        return b.stockNames.length - a.stockNames.length;
+      }
+      return b.avgR - a.avgR;
+    });
+
+    return clusters;
+  }
+
+  window.toggleCorrClusterDetails = function(detailId) {
+    const el = document.getElementById(detailId);
+    if (!el) return;
+    const isHidden = el.style.display === 'none';
+    el.style.display = isHidden ? 'block' : 'none';
+
+    const btn = el.previousElementSibling;
+    if (btn && btn.classList.contains('corr-cluster-toggle-btn')) {
+      const pairCount = el.querySelectorAll('tbody tr').length;
+      if (isHidden) {
+        btn.innerHTML = `<i data-lucide="chevron-up" style="width: 14px; height: 14px;"></i> 세부 1:1 상관계수 닫기`;
+      } else {
+        btn.innerHTML = `<i data-lucide="chevron-down" style="width: 14px; height: 14px;"></i> 세부 1:1 상관계수 (${pairCount}개 쌍) 보기`;
+      }
+      if (window.lucide) window.lucide.createIcons();
+    }
+  };
+
+  // Render Sub-View content for Correlation & Risk Diversification
+  function renderStockCorrelationContent() {
+    const subViewEl = document.getElementById('stockCorrelationSubView');
+    if (!subViewEl) return;
+
+    const { stockMap, dates } = extractStockSeriesMap();
+    const stockNames = Object.keys(stockMap).sort();
+
+    // Compute all pairwise correlation pairs
+    const pairs = [];
+    for (let i = 0; i < stockNames.length; i++) {
+      for (let j = i + 1; j < stockNames.length; j++) {
+        const nameA = stockNames[i];
+        const nameB = stockNames[j];
+        const r = computeStockPearsonCorrelation(stockMap[nameA], stockMap[nameB], dates);
+        pairs.push({
+          stockA: stockMap[nameA],
+          stockB: stockMap[nameB],
+          r: r
+        });
+      }
+    }
+
+    if (activeCorrSubTab === 'high_similarity') {
+      const highPairs = pairs.filter(p => p.r >= 0.6).sort((a, b) => b.r - a.r);
+      if (highPairs.length === 0) {
+        subViewEl.innerHTML = `
+          <div style="text-align: center; color: var(--text-muted); padding: 36px 20px;">
+            <i data-lucide="info" style="width: 32px; height: 32px; color: var(--accent-cyan); margin-bottom: 8px;"></i>
+            <p>상관계수 r ≥ 0.6 이상의 고동조성 종목 쌍이 발견되지 않았습니다. 포트폴리오 변동이 유연하게 분산되어 있습니다.</p>
+          </div>
+        `;
+      } else {
+        const clusters = clusterCorrelatedStocks(highPairs, stockMap);
+        const totalCorrelatedStocks = new Set(highPairs.flatMap(p => [p.stockA.name, p.stockB.name])).size;
+
+        let contentHtml = `
+          <div class="corr-summary-banner">
+            <div class="summary-title">
+              <i data-lucide="layers" style="width: 18px; height: 18px; color: #f87171; vertical-align: text-bottom; margin-right: 6px;"></i>
+              상관관계 클러스터링: 총 <span class="summary-highlight">${clusters.length}개 유사 변동 그룹</span> 감지 (총 ${totalCorrelatedStocks}개 종목)
+            </div>
+            <div style="font-size: 12px; color: var(--text-muted);">
+              개별 1:1 상관 쌍 ${highPairs.length}개를 그룹별로 통합 묶음 처리함
+            </div>
+          </div>
+        `;
+
+        clusters.forEach((cluster, idx) => {
+          const themeCounts = {};
+          cluster.stocks.forEach(s => {
+            if (s.theme) themeCounts[s.theme] = (themeCounts[s.theme] || 0) + 1;
+          });
+          const duplicateThemes = Object.keys(themeCounts).filter(t => themeCounts[t] >= 2);
+
+          let alertMsg = `⚠️ <strong>동조 변동 리스크:</strong> 총 ${cluster.stockNames.length}개 종목이 매우 유사한 패턴으로 움직이고 있습니다 (평균 r = +${cluster.avgR.toFixed(2)}).`;
+          if (duplicateThemes.length > 0) {
+            alertMsg += ` (${duplicateThemes.join(', ')} 테마 중복 포함)`;
+          }
+
+          contentHtml += `
+            <div class="corr-cluster-card">
+              <div class="corr-cluster-header">
+                <div class="corr-cluster-title">
+                  <i data-lucide="flame" style="width: 20px; height: 20px; color: #f87171;"></i>
+                  <span>[그룹 ${idx + 1}] ${cluster.stockNames.length}개 종목 유사 변동 그룹</span>
+                </div>
+                <div class="corr-cluster-badge">평균 r = +${cluster.avgR.toFixed(2)}</div>
+              </div>
+
+              <div class="corr-cluster-stocks">
+                ${cluster.stocks.map(s => `
+                  <div class="corr-stock-chip">
+                    <span style="font-weight: 700; color: #ffffff;">${s.name}</span>
+                    <span class="theme-tag">${s.theme}</span>
+                  </div>
+                `).join('')}
+              </div>
+
+              <div class="corr-cluster-alert">
+                ${alertMsg} 시장 변동 시 그룹 전체가 동반 상승/하락하므로 자산 비중 점검을 권장합니다.
+              </div>
+
+              <button class="corr-cluster-toggle-btn" onclick="window.toggleCorrClusterDetails('corr-cluster-detail-${idx}')">
+                <i data-lucide="chevron-down" style="width: 14px; height: 14px;"></i>
+                세부 1:1 상관계수 (${cluster.internalPairs.length}개 쌍) 보기
+              </button>
+
+              <div id="corr-cluster-detail-${idx}" class="corr-cluster-details" style="display: none;">
+                <table class="corr-detail-table">
+                  <thead>
+                    <tr>
+                      <th>종목 A</th>
+                      <th>종목 B</th>
+                      <th>상관계수 (r)</th>
+                      <th>동조 정도</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${cluster.internalPairs.map(p => `
+                      <tr>
+                        <td><strong>${p.stockA.name}</strong> <span style="font-size: 11px; color: var(--text-muted);">(${p.stockA.theme})</span></td>
+                        <td><strong>${p.stockB.name}</strong> <span style="font-size: 11px; color: var(--text-muted);">(${p.stockB.theme})</span></td>
+                        <td><span class="corr-badge high">r = +${p.r.toFixed(2)}</span></td>
+                        <td style="color: #fca5a5; font-size: 12px;">${p.r >= 0.8 ? '극도로 높음 🔥' : '매우 높음 ⚠️'}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          `;
+        });
+
+        subViewEl.innerHTML = contentHtml;
+        if (window.lucide) window.lucide.createIcons();
+      }
+
+    } else if (activeCorrSubTab === 'hedge_diversity') {
+      const hedgePairs = pairs.filter(p => p.r <= 0.2).sort((a, b) => a.r - b.r);
+      if (hedgePairs.length === 0) {
+        subViewEl.innerHTML = `
+          <div style="text-align: center; color: var(--text-muted); padding: 36px 20px;">
+            <i data-lucide="shield" style="width: 32px; height: 32px; color: var(--accent-cyan); margin-bottom: 8px;"></i>
+            <p>음의 상관관계를 갖는 헷지 종목 쌍이 아직 감지되지 않았습니다.</p>
+          </div>
+        `;
+      } else {
+        let cardsHtml = '<div class="corr-grid">';
+        hedgePairs.forEach(p => {
+          const isNegative = p.r < 0;
+          cardsHtml += `
+            <div class="corr-card hedge-benefit">
+              <div class="corr-card-header">
+                <div>
+                  <div class="corr-stock-name">${p.stockA.name} <span style="color: var(--text-muted); font-size: 13px;">vs</span> ${p.stockB.name}</div>
+                  <div style="margin-top: 4px;">
+                    <span class="theme-tag">${p.stockA.theme}</span>
+                    <span class="theme-tag">${p.stockB.theme}</span>
+                  </div>
+                </div>
+                <div class="corr-badge ${isNegative ? 'hedge' : 'neutral'}">r = ${p.r >= 0 ? '+' : ''}${p.r.toFixed(2)}</div>
+              </div>
+              <p style="font-size: 12px; color: #6ee7b7; margin-top: 8px; line-height: 1.4;">
+                🛡️ <strong>자산 분산 효과:</strong> 두 종목 간의 변동성이 독립적이거나 상쇄되어 하락장에서 전체 계좌 리스크를 완화시켜 줍니다.
+              </p>
+            </div>
+          `;
+        });
+        cardsHtml += '</div>';
+        subViewEl.innerHTML = cardsHtml;
+      }
+
+    } else if (activeCorrSubTab === 'heatmap') {
+      const topStocks = stockNames
+        .map(name => ({
+          name,
+          eval: stockMap[name].evals[dates[dates.length - 1]] || 0
+        }))
+        .sort((a, b) => b.eval - a.eval)
+        .slice(0, 10)
+        .map(s => s.name);
+
+      let tableHtml = `
+        <div class="heatmap-wrapper">
+          <table class="heatmap-table">
+            <thead>
+              <tr>
+                <th>종목명</th>
+                ${topStocks.map(s => `<th title="${s}">${s.length > 8 ? s.substring(0, 8) + '...' : s}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+      `;
+
+      topStocks.forEach(nameA => {
+        tableHtml += `<tr><td class="header-col">${nameA}</td>`;
+        topStocks.forEach(nameB => {
+          if (nameA === nameB) {
+            tableHtml += `<td><div class="cell-r r-self">1.00</div></td>`;
+          } else {
+            const r = computeStockPearsonCorrelation(stockMap[nameA], stockMap[nameB], dates);
+            let cellClass = 'r-neutral';
+            if (r >= 0.7) cellClass = 'r-high';
+            else if (r >= 0.3) cellClass = 'r-mod';
+            else if (r <= -0.1) cellClass = 'r-hedge';
+
+            tableHtml += `<td><div class="cell-r ${cellClass}">${r >= 0 ? '+' : ''}${r.toFixed(2)}</div></td>`;
+          }
+        });
+        tableHtml += `</tr>`;
+      });
+
+      tableHtml += `
+            </tbody>
+          </table>
+        </div>
+      `;
+      subViewEl.innerHTML = tableHtml;
+
+    } else if (activeCorrSubTab === 'custom_duo') {
+      if (!duoSelectedStockA || !stockNames.includes(duoSelectedStockA)) {
+        duoSelectedStockA = stockNames[0] || "";
+      }
+      if (!duoSelectedStockB || !stockNames.includes(duoSelectedStockB)) {
+        duoSelectedStockB = stockNames[1] || stockNames[0] || "";
+      }
+
+      let duoHtml = `
+        <div style="margin-top: 8px;">
+          <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; background: rgba(0,0,0,0.3); padding: 12px 16px; border-radius: var(--radius-md); border: 1px solid var(--border-card);">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <label style="font-size: 13px; font-weight: 600; color: #6366f1;">종목 A:</label>
+              <select class="select-filter" id="duoStockASelect">
+                ${stockNames.map(name => `<option value="${name}" ${name === duoSelectedStockA ? 'selected' : ''}>${name}</option>`).join('')}
+              </select>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <label style="font-size: 13px; font-weight: 600; color: #06b6d4;">종목 B:</label>
+              <select class="select-filter" id="duoStockBSelect">
+                ${stockNames.map(name => `<option value="${name}" ${name === duoSelectedStockB ? 'selected' : ''}>${name}</option>`).join('')}
+              </select>
+            </div>
+
+            <div id="duoCorrBadge" style="margin-left: auto;">
+              <!-- Rendered by renderDuoComparisonChart -->
+            </div>
+          </div>
+
+          <div class="chart-container" style="height: 320px;">
+            <canvas id="duoComparisonChart"></canvas>
+          </div>
+        </div>
+      `;
+      subViewEl.innerHTML = duoHtml;
+
+      const selA = document.getElementById('duoStockASelect');
+      const selB = document.getElementById('duoStockBSelect');
+
+      if (selA) {
+        selA.addEventListener('change', (e) => {
+          duoSelectedStockA = e.target.value;
+          renderDuoComparisonChart();
+        });
+      }
+      if (selB) {
+        selB.addEventListener('change', (e) => {
+          duoSelectedStockB = e.target.value;
+          renderDuoComparisonChart();
+        });
+      }
+
+      renderDuoComparisonChart();
+    }
+
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  // Render 1:1 Duo Comparison Chart
+  function renderDuoComparisonChart() {
+    const canvasEl = document.getElementById('duoComparisonChart');
+    if (!canvasEl) return;
+
+    const { stockMap, dates } = extractStockSeriesMap();
+    const stockA = stockMap[duoSelectedStockA];
+    const stockB = stockMap[duoSelectedStockB];
+
+    if (!stockA || !stockB) return;
+
+    const r = computeStockPearsonCorrelation(stockA, stockB, dates);
+
+    const badgeEl = document.getElementById('duoCorrBadge');
+    if (badgeEl) {
+      let badgeClass = 'neutral';
+      let labelText = '독립적 변동';
+      if (r >= 0.7) { badgeClass = 'high'; labelText = '높은 동조성 (리스크 중복)'; }
+      else if (r <= -0.1) { badgeClass = 'hedge'; labelText = '헷지 & 분산 효과'; }
+
+      badgeEl.innerHTML = `<span class="corr-badge ${badgeClass}">피어슨 상관계수 r = ${r >= 0 ? '+' : ''}${r.toFixed(2)} (${labelText})</span>`;
+    }
+
+    const firstDate = dates[0];
+    const pA0 = stockA.prices[firstDate] || 1;
+    const pB0 = stockB.prices[firstDate] || 1;
+
+    const dataA = dates.map(d => {
+      const price = stockA.prices[d];
+      if (!price) return null;
+      return parseFloat((((price - pA0) / pA0) * 100).toFixed(2));
+    });
+
+    const dataB = dates.map(d => {
+      const price = stockB.prices[d];
+      if (!price) return null;
+      return parseFloat((((price - pB0) / pB0) * 100).toFixed(2));
+    });
+
+    const ctx = canvasEl.getContext('2d');
+    if (duoChartInstance) duoChartInstance.destroy();
+
+    duoChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: dates,
+        datasets: [
+          {
+            label: stockA.name,
+            data: dataA,
+            borderColor: '#6366f1',
+            backgroundColor: 'rgba(99, 102, 241, 0.1)',
+            borderWidth: 3,
+            tension: 0.3,
+            pointRadius: 5
+          },
+          {
+            label: stockB.name,
+            data: dataB,
+            borderColor: '#06b6d4',
+            backgroundColor: 'rgba(6, 182, 212, 0.1)',
+            borderWidth: 3,
+            tension: 0.3,
+            pointRadius: 5
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'nearest', intersect: true },
+        plugins: {
+          datalabels: { display: false },
+          legend: {
+            position: 'top',
+            labels: { color: '#9ca3af', font: { family: 'Outfit', size: 12, weight: 600 } }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+            titleColor: '#ffffff',
+            bodyColor: '#cbd5e1',
+            callbacks: {
+              label: function(c) {
+                return `${c.dataset.label}: ${c.raw >= 0 ? '+' : ''}${c.raw}%`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#9ca3af' } },
+          y: {
+            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+            ticks: { color: '#9ca3af', callback: v => `${v}%` }
+          }
+        }
+      }
     });
   }
 
@@ -853,6 +2912,66 @@
 
     const sortSel = document.getElementById('sortBySelect');
     if (sortSel) sortSel.addEventListener('change', renderStockTable);
+
+    // Stock Analysis Control Listeners
+    const saYearSel = document.getElementById('saStartYearSelect');
+    if (saYearSel) saYearSel.addEventListener('change', renderStockAnalysisTab);
+
+    const saMonthSel = document.getElementById('saStartMonthSelect');
+    if (saMonthSel) saMonthSel.addEventListener('change', renderStockAnalysisTab);
+
+    document.querySelectorAll('input[name="saIntervalType"]').forEach(rad => {
+      rad.addEventListener('change', renderStockAnalysisTab);
+    });
+
+    const btnSelectAll = document.getElementById('btnSaSelectAll');
+    if (btnSelectAll) {
+      btnSelectAll.addEventListener('click', () => {
+        const allStocks = getAllHeldStockNames();
+        saSelectedStockNamesSet = new Set(allStocks.map(s => s.name));
+        renderStockAnalysisTab();
+      });
+    }
+
+    const btnDeselectAll = document.getElementById('btnSaDeselectAll');
+    if (btnDeselectAll) {
+      btnDeselectAll.addEventListener('click', () => {
+        saSelectedStockNamesSet = new Set();
+        renderStockAnalysisTab();
+      });
+    }
+
+    const saSelect = document.getElementById('stockAnalysisSelect');
+    if (saSelect) saSelect.addEventListener('change', renderStockAnalysisChart);
+
+    const saMode = document.getElementById('stockChartModeSelect');
+    if (saMode) saMode.addEventListener('change', renderStockAnalysisChart);
+
+    const chkSp = document.getElementById('chkSp500');
+    if (chkSp) chkSp.addEventListener('change', renderStockAnalysisChart);
+
+    const chkKp = document.getElementById('chkKospi200');
+    if (chkKp) chkKp.addEventListener('change', renderStockAnalysisChart);
+
+    const btnSync = document.getElementById('btnSyncAndDraw');
+    if (btnSync) btnSync.addEventListener('click', handleSyncAndDraw);
+
+    // Refresh Holdings & Ticker Match Button Handlers
+    const btnRefreshStocks = document.getElementById('btnSaRefreshStocks');
+    if (btnRefreshStocks) btnRefreshStocks.addEventListener('click', handleRefreshStocks);
+
+    const btnRefreshStocksHeader = document.getElementById('btnSaRefreshStocksHeader');
+    if (btnRefreshStocksHeader) btnRefreshStocksHeader.addEventListener('click', handleRefreshStocks);
+
+
+    // Correlation Sub-Tab buttons
+    document.querySelectorAll('.corr-subtab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        activeCorrSubTab = btn.dataset.subtab;
+        document.querySelectorAll('.corr-subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === activeCorrSubTab));
+        renderStockCorrelationContent();
+      });
+    });
 
     const modal = document.getElementById('uploadModal');
     const openModalBtn = document.getElementById('openUploadModalBtn');
@@ -887,74 +3006,262 @@
         if (e.target.files.length > 0) handleExcelFile(e.target.files[0]);
       });
     }
+
+    // ==========================================
+    // System Settings & Auth Events
+    // ==========================================
+    const settingsModal = document.getElementById('settingsModal');
+    const btnOpenSettings = document.getElementById('btnOpenSettings');
+    const closeSettingsModalBtn = document.getElementById('closeSettingsModalBtn');
+    const btnSavePassword = document.getElementById('btnSavePassword');
+    const btnRemovePassword = document.getElementById('btnRemovePassword');
+    const btnResetDatabase = document.getElementById('btnResetDatabase');
+
+    function refreshSettingsUI() {
+      const savedPwd = localStorage.getItem('js_app_password');
+      const badge = document.getElementById('pwdStatusBadge');
+      const currentPwdGroup = document.getElementById('currentPwdGroup');
+      const btnRemove = document.getElementById('btnRemovePassword');
+      const btnSave = document.getElementById('btnSavePassword');
+
+      if (savedPwd) {
+        if (badge) {
+          badge.textContent = '보안 설정됨';
+          badge.className = 'badge-status active';
+        }
+        if (currentPwdGroup) currentPwdGroup.style.display = 'block';
+        if (btnRemove) btnRemove.style.display = 'inline-flex';
+        if (btnSave) btnSave.innerHTML = '<i data-lucide="shield-check" style="width: 15px; height: 15px;"></i> Password 재설정';
+      } else {
+        if (badge) {
+          badge.textContent = '미설정 (자유 접속)';
+          badge.className = 'badge-status';
+        }
+        if (currentPwdGroup) currentPwdGroup.style.display = 'none';
+        if (btnRemove) btnRemove.style.display = 'none';
+        if (btnSave) btnSave.innerHTML = '<i data-lucide="shield-check" style="width: 15px; height: 15px;"></i> Password 설정/저장';
+      }
+
+      const curInput = document.getElementById('currentPasswordInput');
+      const newInput = document.getElementById('newPasswordInput');
+      const confirmInput = document.getElementById('confirmPasswordInput');
+      if (curInput) curInput.value = '';
+      if (newInput) newInput.value = '';
+      if (confirmInput) confirmInput.value = '';
+
+      if (window.lucide) window.lucide.createIcons();
+    }
+
+    if (btnOpenSettings && settingsModal) {
+      btnOpenSettings.addEventListener('click', () => {
+        refreshSettingsUI();
+        settingsModal.classList.add('active');
+      });
+    }
+
+    if (closeSettingsModalBtn && settingsModal) {
+      closeSettingsModalBtn.addEventListener('click', () => {
+        settingsModal.classList.remove('active');
+      });
+    }
+
+    // Close modals on clicking overlay background
+    window.addEventListener('click', (e) => {
+      if (e.target === settingsModal) settingsModal.classList.remove('active');
+      if (e.target === modal) modal.classList.remove('active');
+    });
+
+    // Password Save / Reset Button
+    if (btnSavePassword) {
+      btnSavePassword.addEventListener('click', () => {
+        const savedPwd = localStorage.getItem('js_app_password');
+        const curInput = document.getElementById('currentPasswordInput');
+        const newInput = document.getElementById('newPasswordInput');
+        const confirmInput = document.getElementById('confirmPasswordInput');
+
+        if (savedPwd) {
+          if (!curInput || curInput.value !== savedPwd) {
+            alert('현재 비밀번호가 일치하지 않습니다.');
+            if (curInput) curInput.focus();
+            return;
+          }
+        }
+
+        const newPwd = (newInput ? newInput.value : '').trim();
+        const confPwd = (confirmInput ? confirmInput.value : '').trim();
+
+        if (newPwd.length < 4) {
+          alert('새 비밀번호를 4자리 이상 입력해주세요.');
+          if (newInput) newInput.focus();
+          return;
+        }
+
+        if (newPwd !== confPwd) {
+          alert('새 비밀번호와 확인 입력이 일치하지 않습니다.');
+          if (confirmInput) confirmInput.focus();
+          return;
+        }
+
+        localStorage.setItem('js_app_password', newPwd);
+        alert('비밀번호가 성공적으로 저장/재설정되었습니다.');
+        refreshSettingsUI();
+      });
+    }
+
+    // Password Remove Button
+    if (btnRemovePassword) {
+      btnRemovePassword.addEventListener('click', () => {
+        const savedPwd = localStorage.getItem('js_app_password');
+        const curInput = document.getElementById('currentPasswordInput');
+        if (savedPwd && curInput) {
+          if (curInput.value !== savedPwd) {
+            alert('현재 비밀번호를 올바르게 입력해야 해제가 가능합니다.');
+            curInput.focus();
+            return;
+          }
+        }
+        if (confirm('비밀번호 보호 설정을 해제하시겠습니까?')) {
+          localStorage.removeItem('js_app_password');
+          alert('비밀번호 보호 설정이 해제되었습니다.');
+          refreshSettingsUI();
+        }
+      });
+    }
+
+    // DB Reset Button (Complete Wipe to 0 records)
+    if (btnResetDatabase) {
+      btnResetDatabase.addEventListener('click', async () => {
+        const ok = confirm('정말로 모든 데이터를 완전 삭제(초기화)하시겠습니까?\n\n- 프로그램에 로드된 모든 스냅샷이 0건으로 비워집니다.\n- 새 엑셀 파일(spop_*.xlsx)을 업로드하여 데이터를 추가할 수 있습니다.');
+        if (ok) {
+          localStorage.removeItem('js_investment_custom');
+          localStorage.setItem('js_db_cleared', 'true');
+          if (settingsModal) settingsModal.classList.remove('active');
+          await initData();
+          alert('모든 데이터가 삭제되고 0건의 빈 상태로 초기화되었습니다.\n엑셀 파일을 업로드하여 새로운 데이터를 분석해보세요!');
+        }
+      });
+    }
+
+    // Restore Demo Data Button
+    const btnRestoreDemo = document.getElementById('btnRestoreDemoData');
+    if (btnRestoreDemo) {
+      btnRestoreDemo.addEventListener('click', async () => {
+        if (confirm('기본 예제 데이터(spop_db 샘플)를 다시 불러오시겠습니까?')) {
+          localStorage.removeItem('js_db_cleared');
+          if (settingsModal) settingsModal.classList.remove('active');
+          await initData(true);
+          alert('기본 예제 데이터가 성공적으로 복원되었습니다.');
+        }
+      });
+    }
+
+    // App Lock Overlay Logic
+    const lockOverlay = document.getElementById('appLockOverlay');
+    const lockInput = document.getElementById('lockPasswordInput');
+    const btnUnlock = document.getElementById('btnUnlockApp');
+    const lockErrorMsg = document.getElementById('lockErrorMsg');
+
+    function checkAppLock() {
+      const savedPwd = localStorage.getItem('js_app_password');
+      if (savedPwd && lockOverlay) {
+        lockOverlay.style.display = 'flex';
+        if (lockInput) {
+          lockInput.value = '';
+          setTimeout(() => lockInput.focus(), 100);
+        }
+      } else if (lockOverlay) {
+        lockOverlay.style.display = 'none';
+      }
+    }
+
+    function attemptUnlock() {
+      const savedPwd = localStorage.getItem('js_app_password');
+      if (!savedPwd) {
+        if (lockOverlay) lockOverlay.style.display = 'none';
+        return;
+      }
+      if (lockInput && lockInput.value === savedPwd) {
+        if (lockOverlay) lockOverlay.style.display = 'none';
+        if (lockErrorMsg) lockErrorMsg.style.display = 'none';
+      } else {
+        if (lockErrorMsg) {
+          lockErrorMsg.style.display = 'block';
+          lockErrorMsg.textContent = '비밀번호가 일치하지 않습니다.';
+        }
+        if (lockInput) {
+          lockInput.value = '';
+          lockInput.focus();
+        }
+      }
+    }
+
+    if (btnUnlock) btnUnlock.addEventListener('click', attemptUnlock);
+    if (lockInput) {
+      lockInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          attemptUnlock();
+        }
+      });
+    }
+
+    checkAppLock();
   }
 
   function handleExcelFile(file) {
     const reader = new FileReader();
-    reader.onload = function(e) {
+    reader.onload = async function(e) {
       try {
-        const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const jsonRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        const arrayBuffer = e.target.result;
+        
+        // 1. Try parsing as Monthly Performance Excel first if filename or content matches
+        const isMonthlyFilename = file.name.includes('월별') || file.name.includes('성과') || file.name.includes('monthly');
+        const parsedMonthly = parseMonthlyPerformanceArrayBuffer(arrayBuffer);
 
-        if (jsonRows.length < 3) {
-          alert('올바른 삼성증권 SPOP 엑셀 양식이 아닙니다.');
+        if (isMonthlyFilename || (parsedMonthly && parsedMonthly.length >= 2)) {
+          if (parsedMonthly && parsedMonthly.length > 0) {
+            rawMonthlyData = parsedMonthly;
+            localStorage.setItem('js_monthly_performance_custom', JSON.stringify(rawMonthlyData));
+            
+            const modal = document.getElementById('uploadModal');
+            if (modal) modal.classList.remove('active');
+
+            renderMonthlyPerformanceTab();
+            renderSnapshotMpStatusCard();
+
+            const startD = rawMonthlyData[0].date;
+            const endD = rawMonthlyData[rawMonthlyData.length - 1].date;
+            alert(`월별 투자성과 엑셀 파일이 성공적으로 등록되었습니다!\n\n- 파일명: ${file.name}\n- 분석 기간: ${startD} ~ ${endD} (총 ${rawMonthlyData.length}개월)\n- '월별 투자성과' 탭에서 시계열 그래프를 확인할 수 있습니다.`);
+            return;
+          }
+        }
+
+        // 2. Fallback to SPOP Holdings Snapshot Excel Parser
+        const newDataset = parseSpopArrayBuffer(arrayBuffer, file.name);
+        if (!newDataset || newDataset.items.length === 0) {
+          alert('엑셀 파일에서 보유 종목 또는 월별 투자성과 데이터를 읽을 수 없습니다.');
           return;
         }
 
-        const dateStr = String(jsonRows[0][0] || '').trim();
-        const parsedDate = dateStr.slice(0, 10).replace(/\./g, '-');
-
-        const items = [];
-        let totalBuy = 0, totalEval = 0, totalProfit = 0;
-
-        for (let i = 2; i < jsonRows.length; i++) {
-          const row = jsonRows[i];
-          if (!row || row.length < 7) continue;
-
-          const acct = String(row[0] || '').trim();
-          const name = String(row[1] || '').trim();
-          if (!acct || !name) continue;
-
-          const qty = parseFloat(String(row[3] || '0').replace(/,/g, '')) || 0;
-          const price = parseFloat(String(row[4] || '0').replace(/,/g, '')) || 0;
-          const buy = parseInt(String(row[5] || '0').replace(/,/g, '')) || 0;
-          const evalAmt = parseInt(String(row[6] || '0').replace(/,/g, '')) || 0;
-          const profit = parseInt(String(row[7] || '0').replace(/,/g, '')) || 0;
-          const retRate = parseFloat(String(row[9] || '0').replace(/,/g, '')) || 0;
-
-          totalBuy += buy;
-          totalEval += evalAmt;
-          totalProfit += profit;
-
-          items.push({
-            account: acct,
-            name: name,
-            qty: qty,
-            price: price,
-            buy: buy,
-            eval: evalAmt,
-            profit: profit,
-            returnRate: retRate
-          });
+        localStorage.removeItem('js_db_cleared');
+        const deletedDatesJson = localStorage.getItem('js_deleted_snapshots');
+        if (deletedDatesJson) {
+          try {
+            const deletedDates = JSON.parse(deletedDatesJson);
+            const filtered = deletedDates.filter(d => d !== newDataset.date);
+            localStorage.setItem('js_deleted_snapshots', JSON.stringify(filtered));
+          } catch(e) {}
         }
 
-        const newDataset = {
-          date: parsedDate || new Date().toISOString().slice(0, 10),
-          label: `${parsedDate} 스냅샷`,
-          timestamp: dateStr,
-          totalBuy: totalBuy,
-          totalEval: totalEval,
-          totalProfit: totalProfit,
-          returnRate: totalBuy > 0 ? (totalProfit / totalBuy * 100) : 0,
-          items: items
-        };
-
-        rawDatasets.push(newDataset);
-        rawDatasets.sort((a, b) => new Date(a.date) - new Date(b.date));
-        selectedSnapshotIndex = rawDatasets.findIndex(d => d.date === newDataset.date);
+        const existingIdx = rawDatasets.findIndex(d => d.date === newDataset.date);
+        if (existingIdx >= 0) {
+          rawDatasets[existingIdx] = newDataset;
+          selectedSnapshotIndex = existingIdx;
+        } else {
+          rawDatasets.push(newDataset);
+          rawDatasets.sort((a, b) => new Date(a.date) - new Date(b.date));
+          selectedSnapshotIndex = rawDatasets.findIndex(d => d.date === newDataset.date);
+        }
 
         const customOnly = rawDatasets.filter(d => d.date !== '2026-06-28' && d.date !== '2026-09-12');
         localStorage.setItem('js_investment_custom', JSON.stringify(customOnly));
@@ -967,14 +3274,600 @@
         renderDashboard();
       } catch (err) {
         console.error(err);
-        alert('엑셀 파일을 파싱하는 도중 오류가 발생했습니다.');
+        alert(err.message || '엑셀 파일을 파싱하는 도중 오류가 발생했습니다.');
       }
     };
     reader.readAsArrayBuffer(file);
   }
 
   document.addEventListener('DOMContentLoaded', () => {
-    setupEvents();
-    initData();
+    try {
+      setupEvents();
+    setupMpEvents();
+    loadMonthlyPerformanceData();
+    } catch(e) {
+      console.error('Failed to setup events:', e);
+    }
+    try {
+      initData();
+    } catch(e) {
+      console.error('Failed to init data:', e);
+    }
   });
+
+
+
+  // ==========================================
+  // TAB: Monthly Investment Performance (월별 투자성과 현황)
+  // ==========================================
+  const PRELOADED_MONTHLY_PERFORMANCE = [{"date": "2017-10", "base_eval": 0.0, "end_eval": 20001000.0, "profit_loss": 0.0, "adj_eval": 20001000.0, "return_rate": 0.0, "deposit": 20001000.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 0.0, "cum_deposit": 20001000.0}, {"date": "2017-11", "base_eval": 20001000.0, "end_eval": 17893316.0, "profit_loss": -2107684.0, "adj_eval": 20001000.0, "return_rate": -10.54, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -2107684.0, "cum_deposit": 20001000.0}, {"date": "2017-12", "base_eval": 17893316.0, "end_eval": 18430966.0, "profit_loss": 537650.0, "adj_eval": 17893316.0, "return_rate": 3.0, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -1570034.0, "cum_deposit": 20001000.0}, {"date": "2018-01", "base_eval": 18430966.0, "end_eval": 19874998.0, "profit_loss": 1444032.0, "adj_eval": 18430966.0, "return_rate": 7.83, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -126002.0, "cum_deposit": 20001000.0}, {"date": "2018-02", "base_eval": 19874998.0, "end_eval": 24565249.0, "profit_loss": -309749.0, "adj_eval": 24874998.0, "return_rate": -1.25, "deposit": 5000000.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -435751.0, "cum_deposit": 25001000.0}, {"date": "2018-03", "base_eval": 24565249.0, "end_eval": 25619599.0, "profit_loss": 1054350.0, "adj_eval": 24565249.0, "return_rate": 4.29, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 618599.0, "cum_deposit": 25001000.0}, {"date": "2018-04", "base_eval": 25619599.0, "end_eval": 26335804.0, "profit_loss": 716205.0, "adj_eval": 25619599.0, "return_rate": 2.8, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 1334804.0, "cum_deposit": 25001000.0}, {"date": "2018-05", "base_eval": 26335804.0, "end_eval": 24884322.0, "profit_loss": -1451482.0, "adj_eval": 26335804.0, "return_rate": -5.51, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -116678.0, "cum_deposit": 25001000.0}, {"date": "2018-06", "base_eval": 24884322.0, "end_eval": 23459222.0, "profit_loss": -1425100.0, "adj_eval": 24884322.0, "return_rate": -5.73, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -1541778.0, "cum_deposit": 25001000.0}, {"date": "2018-07", "base_eval": 23459222.0, "end_eval": 22610909.0, "profit_loss": -848313.0, "adj_eval": 23459222.0, "return_rate": -3.62, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -2390091.0, "cum_deposit": 25001000.0}, {"date": "2018-08", "base_eval": 22610909.0, "end_eval": 25390139.0, "profit_loss": 2779230.0, "adj_eval": 22610909.0, "return_rate": 12.29, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 389139.0, "cum_deposit": 25001000.0}, {"date": "2018-09", "base_eval": 25390139.0, "end_eval": 26448639.0, "profit_loss": 1058500.0, "adj_eval": 25390139.0, "return_rate": 4.17, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 1447639.0, "cum_deposit": 25001000.0}, {"date": "2018-10", "base_eval": 26448639.0, "end_eval": 22185465.0, "profit_loss": -4263174.0, "adj_eval": 26448639.0, "return_rate": -16.12, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -2815535.0, "cum_deposit": 25001000.0}, {"date": "2018-11", "base_eval": 22185465.0, "end_eval": 20321295.0, "profit_loss": -1864170.0, "adj_eval": 22185465.0, "return_rate": -8.4, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -4679705.0, "cum_deposit": 25001000.0}, {"date": "2018-12", "base_eval": 20321295.0, "end_eval": 20865095.0, "profit_loss": 543800.0, "adj_eval": 20321295.0, "return_rate": 2.68, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -4135905.0, "cum_deposit": 25001000.0}, {"date": "2019-01", "base_eval": 20865095.0, "end_eval": 23179332.0, "profit_loss": 2314237.0, "adj_eval": 20865095.0, "return_rate": 11.09, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -1821668.0, "cum_deposit": 25001000.0}, {"date": "2019-02", "base_eval": 23179332.0, "end_eval": 22108332.0, "profit_loss": -1071000.0, "adj_eval": 23179332.0, "return_rate": -4.62, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -2892668.0, "cum_deposit": 25001000.0}, {"date": "2019-03", "base_eval": 22108332.0, "end_eval": 20840232.0, "profit_loss": -1268100.0, "adj_eval": 22108332.0, "return_rate": -5.74, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -4160768.0, "cum_deposit": 25001000.0}, {"date": "2019-04", "base_eval": 20840232.0, "end_eval": 21772820.0, "profit_loss": 932588.0, "adj_eval": 20840232.0, "return_rate": 4.47, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -3228180.0, "cum_deposit": 25001000.0}, {"date": "2019-05", "base_eval": 21772820.0, "end_eval": 20075100.0, "profit_loss": -1697720.0, "adj_eval": 21772820.0, "return_rate": -7.8, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -4925900.0, "cum_deposit": 25001000.0}, {"date": "2019-06", "base_eval": 20075100.0, "end_eval": 21755000.0, "profit_loss": 1679900.0, "adj_eval": 20075100.0, "return_rate": 8.37, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -3246000.0, "cum_deposit": 25001000.0}, {"date": "2019-07", "base_eval": 21755000.0, "end_eval": 20364162.0, "profit_loss": -1390838.0, "adj_eval": 21755000.0, "return_rate": -6.39, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -4636838.0, "cum_deposit": 25001000.0}, {"date": "2019-08", "base_eval": 20364162.0, "end_eval": 20155042.0, "profit_loss": -209120.0, "adj_eval": 20364162.0, "return_rate": -1.03, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -4845958.0, "cum_deposit": 25001000.0}, {"date": "2019-09", "base_eval": 20155042.0, "end_eval": 22011292.0, "profit_loss": 1856250.0, "adj_eval": 20155042.0, "return_rate": 9.21, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -2989708.0, "cum_deposit": 25001000.0}, {"date": "2019-10", "base_eval": 22011292.0, "end_eval": 24737340.0, "profit_loss": 2726048.0, "adj_eval": 22011292.0, "return_rate": 12.38, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -263660.0, "cum_deposit": 25001000.0}, {"date": "2019-11", "base_eval": 24737340.0, "end_eval": 24647520.0, "profit_loss": -89820.0, "adj_eval": 24737340.0, "return_rate": -0.36, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": -353480.0, "cum_deposit": 25001000.0}, {"date": "2019-12", "base_eval": 24647520.0, "end_eval": 26443550.0, "profit_loss": 2536950.0, "adj_eval": 24647520.0, "return_rate": 10.29, "deposit": 0.0, "withdrawal": 740920.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 2183470.0, "cum_deposit": 24260080.0}, {"date": "2020-01", "base_eval": 26443550.0, "end_eval": 28412074.0, "profit_loss": 1968524.0, "adj_eval": 26443550.0, "return_rate": 7.44, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 4151994.0, "cum_deposit": 24260080.0}, {"date": "2020-02", "base_eval": 28412074.0, "end_eval": 27217374.0, "profit_loss": -1194700.0, "adj_eval": 28412074.0, "return_rate": -4.2, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 2957294.0, "cum_deposit": 24260080.0}, {"date": "2020-03", "base_eval": 27217374.0, "end_eval": 25718224.0, "profit_loss": -1499150.0, "adj_eval": 27217374.0, "return_rate": -5.51, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 1458144.0, "cum_deposit": 24260080.0}, {"date": "2020-04", "base_eval": 25718224.0, "end_eval": 28974704.0, "profit_loss": 3256480.0, "adj_eval": 25718224.0, "return_rate": 12.66, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 4714624.0, "cum_deposit": 24260080.0}, {"date": "2020-05", "base_eval": 28974704.0, "end_eval": 30286234.0, "profit_loss": 1311530.0, "adj_eval": 28974704.0, "return_rate": 4.53, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 6026154.0, "cum_deposit": 24260080.0}, {"date": "2020-06", "base_eval": 30286234.0, "end_eval": 35225784.0, "profit_loss": 4939550.0, "adj_eval": 30286234.0, "return_rate": 16.31, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 10965704.0, "cum_deposit": 24260080.0}, {"date": "2020-07", "base_eval": 35225784.0, "end_eval": 50589559.0, "profit_loss": 38671.0, "adj_eval": 50550888.0, "return_rate": 0.08, "deposit": 15325104.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 11004375.0, "cum_deposit": 39585184.0}, {"date": "2020-08", "base_eval": 50589559.0, "end_eval": 51082939.0, "profit_loss": 493380.0, "adj_eval": 50589559.0, "return_rate": 0.98, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 11497755.0, "cum_deposit": 39585184.0}, {"date": "2020-09", "base_eval": 51082939.0, "end_eval": 50057689.0, "profit_loss": -1025250.0, "adj_eval": 63082939.0, "return_rate": -1.63, "deposit": 11976000.0, "withdrawal": 12000000.0, "stock_in": 24000.0, "stock_out": 0.0, "cum_profit": 10472505.0, "cum_deposit": 39585184.0}, {"date": "2020-10", "base_eval": 50057689.0, "end_eval": 49715475.0, "profit_loss": -342214.0, "adj_eval": 50057689.0, "return_rate": -0.68, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 10130291.0, "cum_deposit": 39585184.0}, {"date": "2020-11", "base_eval": 49715475.0, "end_eval": 51181355.0, "profit_loss": 6465880.0, "adj_eval": 49715475.0, "return_rate": 13.01, "deposit": 0.0, "withdrawal": 5000000.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 16596171.0, "cum_deposit": 34585184.0}, {"date": "2020-12", "base_eval": 51181355.0, "end_eval": 123555048.0, "profit_loss": 5373693.0, "adj_eval": 118181355.0, "return_rate": 4.55, "deposit": 67000000.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 21969864.0, "cum_deposit": 101585184.0}, {"date": "2021-01", "base_eval": 123555048.0, "end_eval": 104045668.0, "profit_loss": -832350.0, "adj_eval": 128555048.0, "return_rate": -0.65, "deposit": 5000000.0, "withdrawal": 23677030.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 21137514.0, "cum_deposit": 82908154.0}, {"date": "2021-02", "base_eval": 104045668.0, "end_eval": 76083734.0, "profit_loss": -2088904.0, "adj_eval": 104045668.0, "return_rate": -2.01, "deposit": 0.0, "withdrawal": 25873030.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 19048610.0, "cum_deposit": 57035124.0}, {"date": "2021-03", "base_eval": 76083734.0, "end_eval": 55440047.0, "profit_loss": 533343.0, "adj_eval": 78683734.0, "return_rate": 0.68, "deposit": 5200000.0, "withdrawal": 26377030.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 19581953.0, "cum_deposit": 35858094.0}, {"date": "2021-04", "base_eval": 55440047.0, "end_eval": 20861678.0, "profit_loss": -1373364.0, "adj_eval": 78880537.0, "return_rate": -1.74, "deposit": 23440490.0, "withdrawal": 30325495.0, "stock_in": 0.0, "stock_out": 26320000.0, "cum_profit": 18208589.0, "cum_deposit": 2653089.0}, {"date": "2021-05", "base_eval": 20861678.0, "end_eval": 3208691.0, "profit_loss": 431013.0, "adj_eval": 20861678.0, "return_rate": 2.07, "deposit": 0.0, "withdrawal": 18084000.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 18639602.0, "cum_deposit": -15430911.0}, {"date": "2021-06", "base_eval": 3208691.0, "end_eval": 3329462.0, "profit_loss": 120771.0, "adj_eval": 3208691.0, "return_rate": 3.76, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 18760373.0, "cum_deposit": -15430911.0}, {"date": "2021-07", "base_eval": 3329462.0, "end_eval": 3429189.0, "profit_loss": 99727.0, "adj_eval": 3329462.0, "return_rate": 3.0, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 18860100.0, "cum_deposit": -15430911.0}, {"date": "2021-08", "base_eval": 3429189.0, "end_eval": 3553842.0, "profit_loss": 124653.0, "adj_eval": 3429189.0, "return_rate": 3.64, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 18984753.0, "cum_deposit": -15430911.0}, {"date": "2021-09", "base_eval": 3553842.0, "end_eval": 3497953.0, "profit_loss": -55889.0, "adj_eval": 3553842.0, "return_rate": -1.57, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 18928864.0, "cum_deposit": -15430911.0}, {"date": "2021-10", "base_eval": 3497953.0, "end_eval": 3596586.0, "profit_loss": 98633.0, "adj_eval": 3497953.0, "return_rate": 2.82, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 19027497.0, "cum_deposit": -15430911.0}, {"date": "2021-11", "base_eval": 3596586.0, "end_eval": 3679694.0, "profit_loss": 83108.0, "adj_eval": 3596586.0, "return_rate": 2.31, "deposit": 0.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 19110605.0, "cum_deposit": -15430911.0}, {"date": "2021-12", "base_eval": 3679694.0, "end_eval": 7832248.0, "profit_loss": 152554.0, "adj_eval": 7679694.0, "return_rate": 1.99, "deposit": 4000000.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 19263159.0, "cum_deposit": -11430911.0}, {"date": "2022-01", "base_eval": 7832248.0, "end_eval": 76923740.0, "profit_loss": -596902.0, "adj_eval": 77520642.0, "return_rate": -0.77, "deposit": 69688394.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 18666257.0, "cum_deposit": 58257483.0}, {"date": "2022-02", "base_eval": 76923740.0, "end_eval": 77326359.0, "profit_loss": -635881.0, "adj_eval": 78062240.0, "return_rate": -0.81, "deposit": 1138500.0, "withdrawal": 100000.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 18030376.0, "cum_deposit": 59295983.0}, {"date": "2022-03", "base_eval": 77326359.0, "end_eval": 80058051.0, "profit_loss": 1793192.0, "adj_eval": 78264859.0, "return_rate": 2.29, "deposit": 938500.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 19823568.0, "cum_deposit": 60234483.0}, {"date": "2022-04", "base_eval": 80058051.0, "end_eval": 79402538.0, "profit_loss": -1594013.0, "adj_eval": 80996551.0, "return_rate": -1.97, "deposit": 938500.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 18229555.0, "cum_deposit": 61172983.0}, {"date": "2022-05", "base_eval": 79402538.0, "end_eval": 79240855.0, "profit_loss": -1100183.0, "adj_eval": 80341038.0, "return_rate": -1.37, "deposit": 938500.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 17129372.0, "cum_deposit": 62111483.0}, {"date": "2022-06", "base_eval": 79240855.0, "end_eval": 79240939.0, "profit_loss": -938416.0, "adj_eval": 80179355.0, "return_rate": -1.17, "deposit": 938500.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 16190956.0, "cum_deposit": 63049983.0}, {"date": "2022-07", "base_eval": 79240939.0, "end_eval": 82070668.0, "profit_loss": 1881329.0, "adj_eval": 80189339.0, "return_rate": 2.35, "deposit": 948400.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 18072285.0, "cum_deposit": 63998383.0}, {"date": "2022-08", "base_eval": 82070668.0, "end_eval": 83375175.0, "profit_loss": 356107.0, "adj_eval": 83019068.0, "return_rate": 0.43, "deposit": 948400.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 18428392.0, "cum_deposit": 64946783.0}, {"date": "2022-09", "base_eval": 83375175.0, "end_eval": 83711431.0, "profit_loss": -612144.0, "adj_eval": 84323575.0, "return_rate": -0.73, "deposit": 948400.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 17816248.0, "cum_deposit": 65895183.0}, {"date": "2022-10", "base_eval": 83711431.0, "end_eval": 85343033.0, "profit_loss": 683202.0, "adj_eval": 84659831.0, "return_rate": 0.81, "deposit": 948400.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 18499450.0, "cum_deposit": 66843583.0}, {"date": "2022-11", "base_eval": 85343033.0, "end_eval": 85306362.0, "profit_loss": -985071.0, "adj_eval": 86291433.0, "return_rate": -1.14, "deposit": 948400.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 17514379.0, "cum_deposit": 67791983.0}, {"date": "2022-12", "base_eval": 85306362.0, "end_eval": 87427158.0, "profit_loss": -1827604.0, "adj_eval": 89254762.0, "return_rate": -2.05, "deposit": 3948400.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 15686775.0, "cum_deposit": 71740383.0}, {"date": "2023-01", "base_eval": 87427158.0, "end_eval": 89820435.0, "profit_loss": 1444877.0, "adj_eval": 88375558.0, "return_rate": 1.63, "deposit": 948400.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 17131652.0, "cum_deposit": 72688783.0}, {"date": "2023-02", "base_eval": 89820435.0, "end_eval": 92435193.0, "profit_loss": 1666358.0, "adj_eval": 90768835.0, "return_rate": 1.84, "deposit": 948400.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 18798010.0, "cum_deposit": 73637183.0}, {"date": "2023-03", "base_eval": 92435193.0, "end_eval": 94505338.0, "profit_loss": 1121745.0, "adj_eval": 93383593.0, "return_rate": 1.2, "deposit": 948400.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 19919755.0, "cum_deposit": 74585583.0}, {"date": "2023-04", "base_eval": 94505338.0, "end_eval": 96712802.0, "profit_loss": 1259064.0, "adj_eval": 95453738.0, "return_rate": 1.32, "deposit": 948400.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 21178819.0, "cum_deposit": 75533983.0}, {"date": "2023-05", "base_eval": 96712802.0, "end_eval": 98977729.0, "profit_loss": 1316527.0, "adj_eval": 97661202.0, "return_rate": 1.35, "deposit": 948400.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 22495346.0, "cum_deposit": 76482383.0}, {"date": "2023-06", "base_eval": 98977729.0, "end_eval": 101045151.0, "profit_loss": 1119022.0, "adj_eval": 99926129.0, "return_rate": 1.12, "deposit": 948400.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 23614368.0, "cum_deposit": 77430783.0}, {"date": "2023-07", "base_eval": 101045151.0, "end_eval": 102446410.0, "profit_loss": 425979.0, "adj_eval": 102020431.0, "return_rate": 0.42, "deposit": 975280.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 24040347.0, "cum_deposit": 78406063.0}, {"date": "2023-08", "base_eval": 102446410.0, "end_eval": 104334293.0, "profit_loss": 912603.0, "adj_eval": 103421690.0, "return_rate": 0.88, "deposit": 975280.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 24952950.0, "cum_deposit": 79381343.0}, {"date": "2023-09", "base_eval": 104334293.0, "end_eval": 104402571.0, "profit_loss": -907002.0, "adj_eval": 105309573.0, "return_rate": -0.86, "deposit": 975280.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 24045948.0, "cum_deposit": 80356623.0}, {"date": "2023-10", "base_eval": 104402571.0, "end_eval": 106500938.0, "profit_loss": -626913.0, "adj_eval": 107127851.0, "return_rate": -0.59, "deposit": 2725280.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 23419035.0, "cum_deposit": 83081903.0}, {"date": "2023-11", "base_eval": 106500938.0, "end_eval": 111028665.0, "profit_loss": 2552447.0, "adj_eval": 108476218.0, "return_rate": 2.35, "deposit": 1975280.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 25971482.0, "cum_deposit": 85057183.0}, {"date": "2023-12", "base_eval": 111028665.0, "end_eval": 115039033.0, "profit_loss": 2785088.0, "adj_eval": 112253945.0, "return_rate": 2.48, "deposit": 1225280.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 28756570.0, "cum_deposit": 86282463.0}, {"date": "2024-01", "base_eval": 115039033.0, "end_eval": 119756543.0, "profit_loss": 3492230.0, "adj_eval": 116264313.0, "return_rate": 3.0, "deposit": 1225280.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 32248800.0, "cum_deposit": 87507743.0}, {"date": "2024-02", "base_eval": 119756543.0, "end_eval": 122395315.0, "profit_loss": 1413492.0, "adj_eval": 120981823.0, "return_rate": 1.17, "deposit": 1225280.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 33662292.0, "cum_deposit": 88733023.0}, {"date": "2024-03", "base_eval": 122395315.0, "end_eval": 129264413.0, "profit_loss": 5643818.0, "adj_eval": 123620595.0, "return_rate": 4.57, "deposit": 1225280.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 39306110.0, "cum_deposit": 89958303.0}, {"date": "2024-04", "base_eval": 129264413.0, "end_eval": 130845489.0, "profit_loss": 355796.0, "adj_eval": 130489693.0, "return_rate": 0.27, "deposit": 1225280.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 39661906.0, "cum_deposit": 91183583.0}, {"date": "2024-05", "base_eval": 130845489.0, "end_eval": 134709354.0, "profit_loss": 2638585.0, "adj_eval": 132070769.0, "return_rate": 2.0, "deposit": 1225280.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 42300491.0, "cum_deposit": 92408863.0}, {"date": "2024-06", "base_eval": 134709354.0, "end_eval": 139683837.0, "profit_loss": 3749203.0, "adj_eval": 135934634.0, "return_rate": 2.76, "deposit": 1225280.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 46049694.0, "cum_deposit": 93634143.0}, {"date": "2024-07", "base_eval": 139683837.0, "end_eval": 140801422.0, "profit_loss": -116835.0, "adj_eval": 140918257.0, "return_rate": -0.08, "deposit": 1234420.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 45932859.0, "cum_deposit": 94868563.0}, {"date": "2024-08", "base_eval": 140801422.0, "end_eval": 141937978.0, "profit_loss": -97864.0, "adj_eval": 142035842.0, "return_rate": -0.07, "deposit": 1234420.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 45834995.0, "cum_deposit": 96102983.0}, {"date": "2024-09", "base_eval": 141937978.0, "end_eval": 144515626.0, "profit_loss": 1343228.0, "adj_eval": 143172398.0, "return_rate": 0.94, "deposit": 1234420.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 47178223.0, "cum_deposit": 97337403.0}, {"date": "2024-10", "base_eval": 144515626.0, "end_eval": 152468836.0, "profit_loss": 6718790.0, "adj_eval": 145750046.0, "return_rate": 4.61, "deposit": 1234420.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 53897013.0, "cum_deposit": 98571823.0}, {"date": "2024-11", "base_eval": 152468836.0, "end_eval": 155418736.0, "profit_loss": 1715480.0, "adj_eval": 153703256.0, "return_rate": 1.12, "deposit": 1234420.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 55612493.0, "cum_deposit": 99806243.0}, {"date": "2024-12", "base_eval": 155418736.0, "end_eval": 162422007.0, "profit_loss": 5768851.0, "adj_eval": 156653156.0, "return_rate": 3.68, "deposit": 1234420.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 61381344.0, "cum_deposit": 101040663.0}, {"date": "2025-01", "base_eval": 162422007.0, "end_eval": 165057398.0, "profit_loss": 1400971.0, "adj_eval": 163656427.0, "return_rate": 0.86, "deposit": 1234420.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 62782315.0, "cum_deposit": 102275083.0}, {"date": "2025-02", "base_eval": 165057398.0, "end_eval": 165865039.0, "profit_loss": -426779.0, "adj_eval": 166291818.0, "return_rate": -0.26, "deposit": 1234420.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 62355536.0, "cum_deposit": 103509503.0}, {"date": "2025-03", "base_eval": 165865039.0, "end_eval": 165881238.0, "profit_loss": -1218221.0, "adj_eval": 167099459.0, "return_rate": -0.73, "deposit": 1234420.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 61137315.0, "cum_deposit": 104743923.0}, {"date": "2025-04", "base_eval": 165881238.0, "end_eval": 164204931.0, "profit_loss": -2910727.0, "adj_eval": 167115658.0, "return_rate": -1.74, "deposit": 1234420.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 58226588.0, "cum_deposit": 105978343.0}, {"date": "2025-05", "base_eval": 164204931.0, "end_eval": 166811094.0, "profit_loss": 1362743.0, "adj_eval": 167065351.0, "return_rate": 0.82, "deposit": 1234420.0, "withdrawal": 0.0, "stock_in": 1626000.0, "stock_out": 1617000.0, "cum_profit": 59589331.0, "cum_deposit": 107221763.0}, {"date": "2025-06", "base_eval": 166811094.0, "end_eval": 170885478.0, "profit_loss": 2839964.0, "adj_eval": 168045514.0, "return_rate": 1.69, "deposit": 1234420.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 62429295.0, "cum_deposit": 108456183.0}, {"date": "2025-07", "base_eval": 170885478.0, "end_eval": 179493312.0, "profit_loss": 6118894.0, "adj_eval": 173374418.0, "return_rate": 3.53, "deposit": 2488940.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 68548189.0, "cum_deposit": 110945123.0}, {"date": "2025-08", "base_eval": 179493312.0, "end_eval": 183247800.0, "profit_loss": 2662163.0, "adj_eval": 180752252.0, "return_rate": 1.47, "deposit": 1259014.0, "withdrawal": 166689.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 71210352.0, "cum_deposit": 112037448.0}, {"date": "2025-09", "base_eval": 183247800.0, "end_eval": 196668685.0, "profit_loss": 12431945.0, "adj_eval": 184236740.0, "return_rate": 6.75, "deposit": 988940.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 83642297.0, "cum_deposit": 113026388.0}, {"date": "2025-10", "base_eval": 196668685.0, "end_eval": 203082867.0, "profit_loss": 5425242.0, "adj_eval": 197657625.0, "return_rate": 2.74, "deposit": 988940.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 89067539.0, "cum_deposit": 114015328.0}, {"date": "2025-11", "base_eval": 203082867.0, "end_eval": 208658127.0, "profit_loss": 4586320.0, "adj_eval": 204071807.0, "return_rate": 2.25, "deposit": 988940.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 93653859.0, "cum_deposit": 115004268.0}, {"date": "2025-12", "base_eval": 208658127.0, "end_eval": 212777125.0, "profit_loss": 3130058.0, "adj_eval": 209647067.0, "return_rate": 1.49, "deposit": 988940.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 96783917.0, "cum_deposit": 115993208.0}, {"date": "2026-01", "base_eval": 212777125.0, "end_eval": 241093307.0, "profit_loss": 15256642.0, "adj_eval": 225836665.0, "return_rate": 6.76, "deposit": 3738940.0, "withdrawal": 0.0, "stock_in": 9320600.0, "stock_out": 0.0, "cum_profit": 112040559.0, "cum_deposit": 129052748.0}, {"date": "2026-02", "base_eval": 241093307.0, "end_eval": 240218119.0, "profit_loss": -1864128.0, "adj_eval": 242082247.0, "return_rate": -0.77, "deposit": 988940.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 110176431.0, "cum_deposit": 130041688.0}, {"date": "2026-03", "base_eval": 240218119.0, "end_eval": 228474184.0, "profit_loss": -12732875.0, "adj_eval": 241207059.0, "return_rate": -5.28, "deposit": 988940.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 97443556.0, "cum_deposit": 131030628.0}, {"date": "2026-04", "base_eval": 228474184.0, "end_eval": 243257901.0, "profit_loss": 13744777.0, "adj_eval": 229513124.0, "return_rate": 5.99, "deposit": 1038940.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 111188333.0, "cum_deposit": 132069568.0}, {"date": "2026-05", "base_eval": 243257901.0, "end_eval": 264017716.0, "profit_loss": 19720875.0, "adj_eval": 244296841.0, "return_rate": 8.07, "deposit": 1038940.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 130909208.0, "cum_deposit": 133108508.0}, {"date": "2026-06", "base_eval": 264017716.0, "end_eval": 261146120.0, "profit_loss": -3910536.0, "adj_eval": 265056656.0, "return_rate": -1.48, "deposit": 1038940.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 126998672.0, "cum_deposit": 134147448.0}, {"date": "2026-07", "base_eval": 261146120.0, "end_eval": 241210413.0, "profit_loss": -27477707.0, "adj_eval": 268698120.0, "return_rate": -10.23, "deposit": 1040000.0, "withdrawal": 10000.0, "stock_in": 6512000.0, "stock_out": 0.0, "cum_profit": 99520965.0, "cum_deposit": 141689448.0}, {"date": "2026-08", "base_eval": 241210413.0, "end_eval": 246880245.0, "profit_loss": 4629832.0, "adj_eval": 242250413.0, "return_rate": 1.91, "deposit": 1040000.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 104150797.0, "cum_deposit": 142729448.0}, {"date": "2026-09", "base_eval": 246880245.0, "end_eval": 246544827.0, "profit_loss": -385418.0, "adj_eval": 246930245.0, "return_rate": -0.16, "deposit": 50000.0, "withdrawal": 0.0, "stock_in": 0.0, "stock_out": 0.0, "cum_profit": 103765379.0, "cum_deposit": 142779448.0}];
+
+  let rawMonthlyData = PRELOADED_MONTHLY_PERFORMANCE;
+  let mpSelectedPeriod = 'ALL';
+  let mpSelectedYear = 'ALL';
+  let mpSearchQuery = '';
+  let mpSortBy = 'date-desc';
+  let mpAssetChartInstance = null;
+  let mpPnlChartInstance = null;
+
+  function renderSnapshotMpStatusCard() {
+    const titleEl = document.getElementById('snapshotMpStatusTitle');
+    const subEl = document.getElementById('snapshotMpStatusSub');
+    if (!titleEl || !subEl || !rawMonthlyData || rawMonthlyData.length === 0) return;
+
+    const startD = rawMonthlyData[0].date;
+    const endD = rawMonthlyData[rawMonthlyData.length - 1].date;
+    const count = rawMonthlyData.length;
+    const latest = rawMonthlyData[rawMonthlyData.length - 1];
+    const customSaved = localStorage.getItem('js_monthly_performance_custom');
+    const sourceText = customSaved ? '사용자 업로드 엑셀 파일' : 'spop_db/월별투자성과현황_2609.xlsx';
+
+    const isProfitUp = latest.cum_profit >= 0;
+    titleEl.innerHTML = `<i data-lucide="check-circle" style="color: var(--profit-green); width: 16px; height: 16px;"></i> 월별 성과 데이터: ${startD} ~ ${endD} (총 ${count}개월)`;
+    subEl.innerHTML = `출처: <strong>${sourceText}</strong> | 최신 기말 평가금액: ${formatKRW(latest.end_eval)} | 누적 손익: <strong style="color: ${isProfitUp ? 'var(--profit-green)' : 'var(--loss-red)'}">${isProfitUp ? '+' : ''}${formatKRW(latest.cum_profit)}</strong>`;
+
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  async function loadMonthlyPerformanceData() {
+    const customSaved = localStorage.getItem('js_monthly_performance_custom');
+    if (customSaved) {
+      try {
+        const parsedCustom = JSON.parse(customSaved);
+        if (Array.isArray(parsedCustom) && parsedCustom.length > 0) {
+          rawMonthlyData = parsedCustom;
+          if (activeTabId === 'tab-monthly-performance') renderMonthlyPerformanceTab();
+          renderSnapshotMpStatusCard();
+          return;
+        }
+      } catch(e) {}
+    }
+
+    try {
+      const res = await fetch('/spop_db/월별투자성과현황_2609.xlsx');
+      if (res.ok) {
+        const buf = await res.arrayBuffer();
+        const parsed = parseMonthlyPerformanceArrayBuffer(buf);
+        if (parsed && parsed.length > 0) {
+          rawMonthlyData = parsed;
+          if (activeTabId === 'tab-monthly-performance') renderMonthlyPerformanceTab();
+          renderSnapshotMpStatusCard();
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Fetched monthly performance excel failed, falling back to preloaded data:', e);
+    }
+    rawMonthlyData = PRELOADED_MONTHLY_PERFORMANCE;
+    if (activeTabId === 'tab-monthly-performance') renderMonthlyPerformanceTab();
+    renderSnapshotMpStatusCard();
+  }
+
+  function parseMonthlyPerformanceArrayBuffer(arrayBuffer) {
+    if (!window.XLSX) return null;
+    try {
+      const data = new Uint8Array(arrayBuffer);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+      
+      const parsed = [];
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || r.length < 2) continue;
+        
+        let dateStr = '';
+        const cellA = r[0];
+        if (typeof cellA === 'number' && cellA > 40000 && cellA < 50000) {
+          const jsDate = new Date((cellA - (25567 + 2)) * 86400 * 1000);
+          const y = jsDate.getFullYear();
+          const m = String(jsDate.getMonth() + 1).padStart(2, '0');
+          dateStr = `${y}-${m}`;
+        } else if (cellA !== undefined && cellA !== null) {
+          const s = String(cellA).trim();
+          if (s.match(/^\d{4}[\.\-\/]?\d{2}/)) {
+            dateStr = s.replace(/[\.\/]/g, '-').substring(0, 7);
+          }
+        }
+        
+        if (!dateStr || !dateStr.match(/^\d{4}-\d{2}$/)) continue;
+        
+        const baseEval = parseFloat(r[1]) || 0;
+        const endEval = parseFloat(r[2]) || 0;
+        const profitLoss = parseFloat(r[3]) || 0;
+        const adjEval = parseFloat(r[4]) || 0;
+        const returnRate = parseFloat(r[5]) || 0;
+        const deposit = parseFloat(r[6]) || 0;
+        const withdrawal = parseFloat(r[7]) || 0;
+        const stockIn = parseFloat(r[8]) || 0;
+        const stockOut = parseFloat(r[9]) || 0;
+        
+        parsed.push({
+          date: dateStr,
+          base_eval: baseEval,
+          end_eval: endEval,
+          profit_loss: profitLoss,
+          adj_eval: adjEval,
+          return_rate: returnRate,
+          deposit: deposit,
+          withdrawal: withdrawal,
+          stock_in: stockIn,
+          stock_out: stockOut
+        });
+      }
+      
+      parsed.sort((a, b) => a.date.localeCompare(b.date));
+      
+      let cumProfit = 0;
+      let cumDeposit = 0;
+      parsed.forEach(item => {
+        cumProfit += item.profit_loss;
+        cumDeposit += (item.deposit - item.withdrawal + item.stock_in - item.stock_out);
+        item.cum_profit = cumProfit;
+        item.cum_deposit = cumDeposit;
+      });
+      
+      return parsed;
+    } catch(err) {
+      console.error('Failed parsing monthly excel:', err);
+      return null;
+    }
+  }
+
+  function getFilteredMonthlyData() {
+    let data = [...rawMonthlyData];
+    
+    if (mpSelectedYear !== 'ALL') {
+      data = data.filter(d => d.date.startsWith(mpSelectedYear));
+    } else if (mpSelectedPeriod === '1Y') {
+      data = data.slice(-12);
+    } else if (mpSelectedPeriod === '3Y') {
+      data = data.slice(-36);
+    } else if (mpSelectedPeriod === '5Y') {
+      data = data.slice(-60);
+    }
+    
+    return data;
+  }
+
+  function renderMonthlyPerformanceTab() {
+    if (!rawMonthlyData || rawMonthlyData.length === 0) return;
+
+    const latest = rawMonthlyData[rawMonthlyData.length - 1];
+    const prev = rawMonthlyData.length > 1 ? rawMonthlyData[rawMonthlyData.length - 2] : null;
+
+    // 1. KPI Cards
+    const curEvalEl = document.getElementById('mpKpiCurrentEval');
+    if (curEvalEl) curEvalEl.textContent = formatKRW(latest.end_eval);
+
+    const evalTrendEl = document.getElementById('mpKpiEvalTrend');
+    if (evalTrendEl && prev) {
+      const diff = latest.end_eval - prev.end_eval;
+      const diffPct = prev.end_eval > 0 ? (diff / prev.end_eval * 100) : 0;
+      const isUp = diff >= 0;
+      evalTrendEl.className = `badge-trend ${isUp ? 'up' : 'down'}`;
+      evalTrendEl.innerHTML = `<i data-lucide="${isUp ? 'trending-up' : 'trending-down'}"></i> 전월 대비 ${isUp ? '+' : ''}${formatKRW(diff)} (${isUp ? '+' : ''}${diffPct.toFixed(2)}%)`;
+    }
+
+    const cumProfitEl = document.getElementById('mpKpiCumProfit');
+    if (cumProfitEl) {
+      const isUp = latest.cum_profit >= 0;
+      cumProfitEl.textContent = `${isUp ? '+' : ''}${formatKRW(latest.cum_profit)}`;
+      cumProfitEl.style.color = isUp ? 'var(--profit-green)' : 'var(--loss-red)';
+    }
+
+    const profitBadgeEl = document.getElementById('mpKpiProfitBadge');
+    if (profitBadgeEl) {
+      const netCap = latest.cum_deposit;
+      const overallReturn = netCap > 0 ? (latest.cum_profit / netCap * 100) : 0;
+      const isUp = latest.cum_profit >= 0;
+      profitBadgeEl.className = `badge-trend ${isUp ? 'up' : 'down'}`;
+      profitBadgeEl.textContent = `누적 수익률 ${isUp ? '+' : ''}${overallReturn.toFixed(2)}%`;
+    }
+
+    const netCapEl = document.getElementById('mpKpiNetCapital');
+    if (netCapEl) netCapEl.textContent = formatKRW(latest.cum_deposit);
+
+    // Find Best & Worst Months
+    let bestM = rawMonthlyData[0];
+    let worstM = rawMonthlyData[0];
+    rawMonthlyData.forEach(d => {
+      if (d.profit_loss > bestM.profit_loss) bestM = d;
+      if (d.profit_loss < worstM.profit_loss) worstM = d;
+    });
+
+    const bestEl = document.getElementById('mpKpiBestMonth');
+    if (bestEl) bestEl.textContent = `최고: ${bestM.date} (+${formatKRW(bestM.profit_loss)})`;
+    const worstEl = document.getElementById('mpKpiWorstMonth');
+    if (worstEl) worstEl.textContent = `최저: ${worstM.date} (${formatKRW(worstM.profit_loss)})`;
+
+    // 2. Summary Text
+    const filteredData = getFilteredMonthlyData();
+    const summaryTextEl = document.getElementById('mpPeriodSummaryText');
+    if (summaryTextEl && filteredData.length > 0) {
+      summaryTextEl.textContent = `조회 범위: ${filteredData[0].date} ~ ${filteredData[filteredData.length - 1].date} (${filteredData.length}개월)`;
+    }
+
+    // 3. Render Charts
+    renderMpAssetChart(filteredData);
+    renderMpPnlChart(filteredData);
+
+    // 4. Render Tables
+    renderMpYearlyTable();
+    renderMpDetailTable();
+
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  function renderMpAssetChart(data) {
+    const ctx = document.getElementById('mpAssetTrendChart');
+    if (!ctx) return;
+
+    if (mpAssetChartInstance) {
+      mpAssetChartInstance.destroy();
+      mpAssetChartInstance = null;
+    }
+
+    const labels = data.map(d => d.date);
+    const evalData = data.map(d => d.end_eval);
+    const depositData = data.map(d => d.cum_deposit);
+    const profitData = data.map(d => d.cum_profit);
+
+    mpAssetChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: '기말 평가금액 (원)',
+            data: evalData,
+            borderColor: '#6366f1',
+            backgroundColor: 'rgba(99, 102, 241, 0.15)',
+            borderWidth: 2.5,
+            fill: true,
+            tension: 0.25,
+            pointRadius: data.length > 50 ? 0 : 3,
+            pointHoverRadius: 5
+          },
+          {
+            label: '누적 순투입 원금 (원)',
+            data: depositData,
+            borderColor: '#f59e0b',
+            borderWidth: 2,
+            borderDash: [4, 4],
+            fill: false,
+            tension: 0.1,
+            pointRadius: 0
+          },
+          {
+            label: '누적 투자손익 (원)',
+            data: profitData,
+            borderColor: '#10b981',
+            borderWidth: 2,
+            fill: false,
+            tension: 0.2,
+            pointRadius: 0
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { color: '#9ca3af', font: { family: 'Outfit' } } },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                return `${context.dataset.label}: ${formatKRW(context.parsed.y)}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: { ticks: { color: '#9ca3af', font: { size: 11 } }, grid: { color: 'rgba(255, 255, 255, 0.05)' } },
+          y: {
+            ticks: {
+              color: '#9ca3af',
+              callback: function(v) { return (v / 100000000).toFixed(1) + '억원'; }
+            },
+            grid: { color: 'rgba(255, 255, 255, 0.05)' }
+          }
+        }
+      }
+    });
+  }
+
+  function renderMpPnlChart(data) {
+    const ctx = document.getElementById('mpPnlComboChart');
+    if (!ctx) return;
+
+    if (mpPnlChartInstance) {
+      mpPnlChartInstance.destroy();
+      mpPnlChartInstance = null;
+    }
+
+    const labels = data.map(d => d.date);
+    const pnlData = data.map(d => d.profit_loss);
+    const returnData = data.map(d => d.return_rate);
+    const barColors = data.map(d => d.profit_loss >= 0 ? 'rgba(16, 185, 129, 0.85)' : 'rgba(244, 63, 94, 0.85)');
+
+    mpPnlChartInstance = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            type: 'bar',
+            label: '월별 투자손익 (원)',
+            data: pnlData,
+            backgroundColor: barColors,
+            borderRadius: 3,
+            yAxisID: 'y'
+          },
+          {
+            type: 'line',
+            label: '월간 수익률 (%)',
+            data: returnData,
+            borderColor: '#06b6d4',
+            borderWidth: 1.8,
+            pointRadius: data.length > 50 ? 0 : 2,
+            yAxisID: 'y1'
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { color: '#9ca3af', font: { family: 'Outfit' } } },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                if (context.dataset.yAxisID === 'y1') {
+                  return `월간 수익률: ${context.parsed.y > 0 ? '+' : ''}${context.parsed.y.toFixed(2)}%`;
+                }
+                return `월별 손익: ${context.parsed.y > 0 ? '+' : ''}${formatKRW(context.parsed.y)}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: { ticks: { color: '#9ca3af', font: { size: 11 } }, grid: { color: 'rgba(255, 255, 255, 0.05)' } },
+          y: {
+            position: 'left',
+            ticks: {
+              color: '#9ca3af',
+              callback: function(v) { return (v / 10000).toFixed(0) + '만원'; }
+            },
+            grid: { color: 'rgba(255, 255, 255, 0.05)' }
+          },
+          y1: {
+            position: 'right',
+            grid: { display: false },
+            ticks: {
+              color: '#06b6d4',
+              callback: function(v) { return v + '%'; }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  function renderMpYearlyTable() {
+    const tbody = document.getElementById('mpYearlyTableBody');
+    if (!tbody) return;
+
+    const yearlyMap = {};
+    rawMonthlyData.forEach(d => {
+      const yr = d.date.substring(0, 4);
+      if (!yearlyMap[yr]) yearlyMap[yr] = [];
+      yearlyMap[yr].push(d);
+    });
+
+    const years = Object.keys(yearlyMap).sort().reverse();
+    let html = '';
+
+    years.forEach(yr => {
+      const list = yearlyMap[yr];
+      const count = list.length;
+      const endEval = list[list.length - 1].end_eval;
+      
+      let sumPnl = 0;
+      let sumNetCap = 0;
+      let winCount = 0;
+
+      list.forEach(item => {
+        sumPnl += item.profit_loss;
+        const netFlow = item.deposit - item.withdrawal + item.stock_in - item.stock_out;
+        sumNetCap += netFlow;
+        if (item.profit_loss > 0) winCount++;
+      });
+
+      const startEval = list[0].base_eval > 0 ? list[0].base_eval : list[0].end_eval;
+      const annReturn = startEval > 0 ? (sumPnl / startEval * 100) : 0;
+      const winRate = (winCount / count * 100).toFixed(1);
+      const isUp = sumPnl >= 0;
+
+      html += `
+        <tr>
+          <td style="font-weight: 700;">${yr}년 <span style="font-size: 12px; color: var(--text-muted);">(${count}개월)</span></td>
+          <td class="num-col" style="font-weight: 600;">${formatKRW(endEval)}</td>
+          <td class="num-col" style="font-weight: 700; color: ${isUp ? 'var(--profit-green)' : 'var(--loss-red)'};">
+            ${isUp ? '+' : ''}${formatKRW(sumPnl)}
+          </td>
+          <td class="num-col" style="font-weight: 700; color: ${isUp ? 'var(--profit-green)' : 'var(--loss-red)'};">
+            ${isUp ? '+' : ''}${annReturn.toFixed(2)}%
+          </td>
+          <td class="num-col">${sumNetCap !== 0 ? formatKRW(sumNetCap) : '-'}</td>
+          <td style="text-align: center;">
+            <span class="badge-trend ${winCount / count >= 0.5 ? 'up' : 'down'}">
+              ${winCount}승 ${count - winCount}패 (${winRate}%)
+            </span>
+          </td>
+        </tr>
+      `;
+    });
+
+    tbody.innerHTML = html;
+  }
+
+  function renderMpDetailTable() {
+    const tbody = document.getElementById('mpDetailTableBody');
+    if (!tbody) return;
+
+    let list = getFilteredMonthlyData();
+
+    if (mpSearchQuery) {
+      const q = mpSearchQuery.toLowerCase().trim();
+      list = list.filter(d => d.date.toLowerCase().includes(q));
+    }
+
+    if (mpSortBy === 'date-desc') {
+      list.sort((a, b) => b.date.localeCompare(a.date));
+    } else if (mpSortBy === 'date-asc') {
+      list.sort((a, b) => a.date.localeCompare(b.date));
+    } else if (mpSortBy === 'profit-desc') {
+      list.sort((a, b) => b.profit_loss - a.profit_loss);
+    } else if (mpSortBy === 'profit-asc') {
+      list.sort((a, b) => a.profit_loss - b.profit_loss);
+    } else if (mpSortBy === 'return-desc') {
+      list.sort((a, b) => b.return_rate - a.return_rate);
+    }
+
+    let html = '';
+    list.forEach(d => {
+      const isUp = d.profit_loss >= 0;
+      const netFlow = d.deposit - d.withdrawal + d.stock_in - d.stock_out;
+
+      let detailParts = [];
+      if (d.deposit > 0) detailParts.push(`입금 +${formatKRW(d.deposit)}`);
+      if (d.withdrawal > 0) detailParts.push(`출금 -${formatKRW(d.withdrawal)}`);
+      if (d.stock_in > 0) detailParts.push(`입고 +${formatKRW(d.stock_in)}`);
+      if (d.stock_out > 0) detailParts.push(`출고 -${formatKRW(d.stock_out)}`);
+
+      const detailStr = detailParts.length > 0 ? detailParts.join(', ') : '-';
+
+      html += `
+        <tr>
+          <td style="font-weight: 700; color: #ffffff;">${d.date}</td>
+          <td class="num-col">${formatKRW(d.base_eval)}</td>
+          <td class="num-col" style="font-weight: 600;">${formatKRW(d.end_eval)}</td>
+          <td class="num-col" style="font-weight: 700; color: ${isUp ? 'var(--profit-green)' : 'var(--loss-red)'};">
+            ${isUp ? '+' : ''}${formatKRW(d.profit_loss)}
+          </td>
+          <td class="num-col" style="font-weight: 700; color: ${isUp ? 'var(--profit-green)' : 'var(--loss-red)'};">
+            ${isUp ? '+' : ''}${d.return_rate.toFixed(2)}%
+          </td>
+          <td class="num-col">${formatKRW(d.adj_eval)}</td>
+          <td class="num-col" style="color: ${netFlow > 0 ? 'var(--accent-cyan)' : (netFlow < 0 ? '#f87171' : 'var(--text-muted)')}; font-weight: 600;">
+            ${netFlow !== 0 ? (netFlow > 0 ? '+' : '') + formatKRW(netFlow) : '-'}
+          </td>
+          <td style="text-align: center; font-size: 12px; color: var(--text-muted);">${detailStr}</td>
+        </tr>
+      `;
+    });
+
+    tbody.innerHTML = html || '<tr><td colspan="8" style="text-align:center; padding:20px;">검색된 월별 성과 데이터가 없습니다.</td></tr>';
+  }
+
+  function setupMpEvents() {
+    const periodGroup = document.getElementById('mpPeriodButtonGroup');
+    if (periodGroup) {
+      periodGroup.addEventListener('click', (e) => {
+        const btn = e.target.closest('.mp-period-btn');
+        if (!btn) return;
+        periodGroup.querySelectorAll('.mp-period-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        mpSelectedPeriod = btn.dataset.period;
+        mpSelectedYear = 'ALL';
+        const yrSel = document.getElementById('mpYearSelect');
+        if (yrSel) yrSel.value = 'ALL';
+        renderMonthlyPerformanceTab();
+      });
+    }
+
+    const yearSelect = document.getElementById('mpYearSelect');
+    if (yearSelect) {
+      yearSelect.addEventListener('change', (e) => {
+        mpSelectedYear = e.target.value;
+        renderMonthlyPerformanceTab();
+      });
+    }
+
+    const searchInput = document.getElementById('mpSearchInput');
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        mpSearchQuery = e.target.value;
+        renderMpDetailTable();
+      });
+    }
+
+    const sortSelect = document.getElementById('mpSortSelect');
+    if (sortSelect) {
+      sortSelect.addEventListener('change', (e) => {
+        mpSortBy = e.target.value;
+        renderMpDetailTable();
+      });
+    }
+
+    const btnReload = document.getElementById('btnMpReloadData');
+    if (btnReload) {
+      btnReload.addEventListener('click', async () => {
+        await loadMonthlyPerformanceData();
+        renderMonthlyPerformanceTab();
+        alert('월별투자성과현황(spop_db/월별투자성과현황_2609.xlsx) 데이터를 최신 상태로 새로고침했습니다.');
+      });
+    }
+
+    const btnUploadMonthlyTab = document.getElementById('btnUploadMonthlyExcelTab');
+    const monthlyFileInput = document.getElementById('monthlyExcelFileInput');
+    const btnResetMonthlyTab = document.getElementById('btnResetMonthlyExcelTab');
+
+    if (btnUploadMonthlyTab && monthlyFileInput) {
+      btnUploadMonthlyTab.addEventListener('click', () => {
+        monthlyFileInput.click();
+      });
+      monthlyFileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) handleExcelFile(e.target.files[0]);
+      });
+    }
+
+    if (btnResetMonthlyTab) {
+      btnResetMonthlyTab.addEventListener('click', async () => {
+        if (confirm('월별 투자성과 데이터를 기본 데이터(spop_db 샘플)로 복원하시겠습니까?')) {
+          localStorage.removeItem('js_monthly_performance_custom');
+          await loadMonthlyPerformanceData();
+          renderMonthlyPerformanceTab();
+          alert('기본 월별 투자성과 데이터가 성공적으로 복원되었습니다.');
+        }
+      });
+    }
+  }
+
 })();
+
+
+
