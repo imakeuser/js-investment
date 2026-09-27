@@ -4,3 +4,4 @@ scratch/
 .env
 .env.*
 
+scratch_test/node_modules/

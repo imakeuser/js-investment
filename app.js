@@ -840,40 +840,203 @@
     });
   }
 
+  
+  let accountDetailChartInstances = [];
+
+  function categorizeStockJS(name) {
+    const n = name.toUpperCase();
+    if (n.includes('TDF') || n.includes('혼합형') || n.includes('스포츠모드')) return 'TDF';
+    if (['미국', '나스닥', 'S&P', '글로벌', '인도', '베트남', '차이나', '해외', 'EURO'].some(k => n.includes(k))) {
+      if (['국채', '하이일드', '회사채', '인플레이션'].some(k => n.includes(k))) return '해외채권';
+      return '해외주식';
+    }
+    if (['국고채', '회사채', '채권', 'CD금리', '단기채', '금리', '채혼'].some(k => n.includes(k))) return '한국채권';
+    if (['현금', 'MMF', '예수금', 'CMA', '머니마켓'].some(k => n.includes(k))) return '현금성자산';
+    if (['금현물', '은선물', '원자재'].some(k => n.includes(k))) return '원자재';
+    if (n.includes('리츠') || n.includes('부동산')) return '한국주식';
+    if (n.includes('공모주')) return '한국주식';
+    return '한국주식';
+  }
+
+  function getAssetSuperCategory(category) {
+    if (['한국주식', '해외주식', '원자재'].includes(category)) return '위험자산';
+    if (['한국채권', '해외채권', '현금성자산'].includes(category)) return '안전자산';
+    if (category === 'TDF') return '위탁자산';
+    return '위험자산';
+  }
+
   function renderAccountCards(accountMap, containerId) {
     const grid = document.getElementById(containerId);
     if (!grid) return;
+    
+    accountDetailChartInstances.forEach(c => c && c.destroy());
+    accountDetailChartInstances = [];
+    
     grid.innerHTML = '';
+    grid.style.display = 'flex';
+    grid.style.flexDirection = 'column';
+    grid.style.gap = '16px';
 
-    Object.entries(accountMap).forEach(([acctKey, acctVal]) => {
+    const curr = rawDatasets[selectedSnapshotIndex] || rawDatasets[rawDatasets.length - 1];
+    const items = curr && curr.items ? curr.items : [];
+
+    Object.entries(accountMap).forEach(([acctKey, acctVal], index) => {
       const card = document.createElement('div');
       card.className = `account-card ${selectedAccountFilter === acctKey ? 'active-account' : ''}`;
+      card.style.display = 'flex';
+      card.style.flexWrap = 'wrap';
+      card.style.justifyContent = 'space-between';
+      card.style.alignItems = 'center';
+      card.style.gap = '20px';
       
       const profitRate = acctVal.buy > 0 ? (acctVal.profit / acctVal.buy * 100) : 0;
       const isProfit = acctVal.profit >= 0;
 
+      
+      let sumRisk = 0;
+      let sumSafe = 0;
+      let sumEntrust = 0;
+      
+      const catSums = {
+        '한국주식': 0, '해외주식': 0, '원자재': 0,
+        '한국채권': 0, '해외채권': 0, '현금성자산': 0,
+        'TDF': 0
+      };
+
+      const acctItems = items.filter(it => it.account === acctKey);
+      
+      acctItems.forEach(it => {
+        const cat = categorizeStockJS(it.name);
+        const superCat = getAssetSuperCategory(cat);
+        
+        if (catSums[cat] !== undefined) {
+          catSums[cat] += it.eval;
+        }
+        
+        if (superCat === '위험자산') sumRisk += it.eval;
+        else if (superCat === '안전자산') sumSafe += it.eval;
+        else if (superCat === '위탁자산') sumEntrust += it.eval;
+      });
+      
+      const totalEval = sumRisk + sumSafe + sumEntrust;
+      const p = (val) => totalEval > 0 ? (val / totalEval * 100).toFixed(1) : 0;
+
+      const canvasId = `acctDetailCanvas_${index}`;
+
       card.innerHTML = `
-        <div class="account-name">${acctKey}</div>
-        <div class="account-eval">${formatKRW(acctVal.eval)}</div>
-        <div class="account-details">
-          <span>매수: ${formatKRW(acctVal.buy)}</span>
-          <span style="color: ${isProfit ? 'var(--profit-green)' : 'var(--loss-red)'}; font-weight: 700;">
-            ${formatKRW(acctVal.profit)} (${formatPercent(profitRate)})
-          </span>
+        <div style="flex: 1; min-width: 250px;">
+          <div class="account-name">${acctKey}</div>
+          <div class="account-eval">${formatKRW(acctVal.eval)}</div>
+          <div class="account-details" style="margin-bottom: 16px;">
+            <span>매수: ${formatKRW(acctVal.buy)}</span>
+            <span style="color: ${isProfit ? 'var(--profit-green)' : 'var(--loss-red)'}; font-weight: 700;">
+              ${formatKRW(acctVal.profit)} (${formatPercent(profitRate)})
+            </span>
+          </div>
+          <button class="btn-view-holdings" onclick="selectedAccountFilter='${acctKey.replace(/'/g, "\\\'")}'; document.getElementById('accountFilterSelect').value=selectedAccountFilter; switchTab('tab-holdings'); renderStockTable();" style="width: 100%; padding: 8px; border-radius: 6px; background: rgba(99,102,241,0.1); border: 1px solid var(--primary); color: #fff; cursor: pointer;">
+            종목 상세보기 →
+          </button>
+        </div>
+        
+        <div style="flex: 1.5; min-width: 300px; display: flex; align-items: center; gap: 16px; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px;">
+          <div style="flex: 1;">
+            <h4 style="font-size: 13px; color: var(--text-muted); margin-bottom: 8px;">자산 배분 분석</h4>
+            <table style="width: 100%; font-size: 11px; text-align: left; border-collapse: collapse;">
+              <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); background: rgba(248, 113, 113, 0.05);">
+                <th style="padding: 8px 10px; color: #f87171; white-space: nowrap; width: 110px; font-size: 12px; border-right: 1px solid rgba(255,255,255,0.05); vertical-align: top;">위험자산 (${p(sumRisk)}%)</th>
+                <td style="padding: 4px 10px;">
+                  <table style="font-size: 11px; color: var(--text-muted); border-collapse: collapse;">
+                    <tr>
+                      <td style="padding: 4px 0;">한국주식</td>
+                      <td style="padding: 4px 0 4px 16px; text-align: right;"><strong style="color: #e5e7eb;">${formatKRW(catSums['한국주식'])}</strong></td>
+                      <td style="padding: 4px 0 4px 12px; text-align: right; width: 50px;">${p(catSums['한국주식'])}%</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 4px 0;">해외주식</td>
+                      <td style="padding: 4px 0 4px 16px; text-align: right;"><strong style="color: #e5e7eb;">${formatKRW(catSums['해외주식'])}</strong></td>
+                      <td style="padding: 4px 0 4px 12px; text-align: right; width: 50px;">${p(catSums['해외주식'])}%</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 4px 0;">원자재</td>
+                      <td style="padding: 4px 0 4px 16px; text-align: right;"><strong style="color: #e5e7eb;">${formatKRW(catSums['원자재'])}</strong></td>
+                      <td style="padding: 4px 0 4px 12px; text-align: right; width: 50px;">${p(catSums['원자재'])}%</td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+              <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); background: rgba(52, 211, 153, 0.05);">
+                <th style="padding: 8px 10px; color: #34d399; white-space: nowrap; width: 110px; font-size: 12px; border-right: 1px solid rgba(255,255,255,0.05); vertical-align: top;">안전자산 (${p(sumSafe)}%)</th>
+                <td style="padding: 4px 10px;">
+                  <table style="font-size: 11px; color: var(--text-muted); border-collapse: collapse;">
+                    <tr>
+                      <td style="padding: 4px 0;">한국채권</td>
+                      <td style="padding: 4px 0 4px 16px; text-align: right;"><strong style="color: #e5e7eb;">${formatKRW(catSums['한국채권'])}</strong></td>
+                      <td style="padding: 4px 0 4px 12px; text-align: right; width: 50px;">${p(catSums['한국채권'])}%</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 4px 0;">해외채권</td>
+                      <td style="padding: 4px 0 4px 16px; text-align: right;"><strong style="color: #e5e7eb;">${formatKRW(catSums['해외채권'])}</strong></td>
+                      <td style="padding: 4px 0 4px 12px; text-align: right; width: 50px;">${p(catSums['해외채권'])}%</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 4px 0;">현금성자산</td>
+                      <td style="padding: 4px 0 4px 16px; text-align: right;"><strong style="color: #e5e7eb;">${formatKRW(catSums['현금성자산'])}</strong></td>
+                      <td style="padding: 4px 0 4px 12px; text-align: right; width: 50px;">${p(catSums['현금성자산'])}%</td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+              <tr style="background: rgba(129, 140, 248, 0.05);">
+                <th style="padding: 8px 10px; color: #818cf8; white-space: nowrap; width: 110px; font-size: 12px; border-right: 1px solid rgba(255,255,255,0.05); vertical-align: top;">위탁자산 (${p(sumEntrust)}%)</th>
+                <td style="padding: 4px 10px;">
+                  <table style="font-size: 11px; color: var(--text-muted); border-collapse: collapse;">
+                    <tr>
+                      <td style="padding: 4px 0;">TDF</td>
+                      <td style="padding: 4px 0 4px 16px; text-align: right;"><strong style="color: #e5e7eb;">${formatKRW(catSums['TDF'])}</strong></td>
+                      <td style="padding: 4px 0 4px 12px; text-align: right; width: 50px;">${p(catSums['TDF'])}%</td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </div>
+                    <div style="width: 120px; height: 120px; position: relative;">
+            <canvas id="${canvasId}"></canvas>
+          </div>
         </div>
       `;
 
-      card.addEventListener('click', () => {
-        selectedAccountFilter = acctKey;
-        const filterSel = document.getElementById('accountFilterSelect');
-        if (filterSel) filterSel.value = selectedAccountFilter;
-        switchTab('tab-holdings');
-        renderStockTable();
-      });
-
       grid.appendChild(card);
+
+      const ctx = document.getElementById(canvasId).getContext('2d');
+      const chart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['위험자산', '안전자산', '위탁자산'],
+          datasets: [{
+            data: [sumRisk, sumSafe, sumEntrust],
+            backgroundColor: ['#f87171', '#34d399', '#818cf8'],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '70%',
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (c) => c.label + ': ' + formatKRW(c.raw)
+              }
+            }
+          }
+        }
+      });
+      accountDetailChartInstances.push(chart);
     });
   }
+
 
   function populateAccountFilter(accountMap) {
     const sel = document.getElementById('accountFilterSelect');
@@ -1177,6 +1340,9 @@
     const kpisEl = document.getElementById('stockDetailKpis');
     if (kpisEl) {
       kpisEl.innerHTML = `
+        <span id="stockApiInfo" style="color: var(--text-muted); background: rgba(0,0,0,0.3); padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border-card);">
+          분석 중...
+        </span>
         <span style="color: var(--text-muted); background: rgba(0,0,0,0.3); padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border-card);">
           최신 평가액: <strong style="color: #ffffff;">${formatKRW(latestEval)}</strong>
         </span>
@@ -1184,6 +1350,18 @@
           누적 손익: <strong style="color: ${isProfit ? 'var(--profit-green)' : 'var(--loss-red)'};">${isProfit ? '+' : ''}${formatKRW(latestProfit)} (${formatPercent(latestRate)})</strong>
         </span>
       `;
+    }
+
+    const apiInfoEl = document.getElementById('stockApiInfo');
+    if (apiInfoEl) {
+      fetch(`/api/stock_info?name=${encodeURIComponent(name)}`)
+        .then(res => res.json())
+        .then(data => {
+          apiInfoEl.innerHTML = `<strong style="color: var(--accent-cyan);">${data.source} : ${data.category}</strong>`;
+        })
+        .catch(err => {
+          apiInfoEl.innerHTML = `<strong style="color: var(--loss-red);">분석 실패</strong>`;
+        });
     }
 
     const ctx = canvas.getContext('2d');
@@ -3280,20 +3458,15 @@
     reader.readAsArrayBuffer(file);
   }
 
-  document.addEventListener('DOMContentLoaded', () => {
-    try {
-      setupEvents();
-    setupMpEvents();
-    loadMonthlyPerformanceData();
-    } catch(e) {
-      console.error('Failed to setup events:', e);
-    }
-    try {
-      initData();
-    } catch(e) {
-      console.error('Failed to init data:', e);
-    }
-  });
+  function startupApp() {
+    try { setupEvents(); setupMpEvents(); loadMonthlyPerformanceData(); } catch(e) { console.error(e); }
+    try { initData(); } catch(e) { console.error(e); }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startupApp);
+  } else {
+    startupApp();
+  }
 
 
 
@@ -3330,6 +3503,13 @@
   }
 
   async function loadMonthlyPerformanceData() {
+    if (localStorage.getItem('js_db_cleared') === 'true') {
+      rawMonthlyData = [];
+      if (typeof activeTabId !== 'undefined' && activeTabId === 'tab-monthly-performance') renderMonthlyPerformanceTab();
+      if (typeof renderSnapshotMpStatusCard === 'function') renderSnapshotMpStatusCard();
+      return;
+    }
+
     const customSaved = localStorage.getItem('js_monthly_performance_custom');
     if (customSaved) {
       try {

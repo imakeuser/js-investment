@@ -34,7 +34,7 @@
       
       <div class="header-status">
         <span class="active-snapshot-badge" id="headerActiveSnapshotBadge">
-          <i data-lucide="calendar"></i> 현재 스냅샷: <strong id="headerActiveDateText">2026.09.12 (최신)</strong>
+          <i data-lucide="calendar"></i> 현재 스냅샷: <strong id="headerActiveDateText">로딩중...</strong>
         </span>
         <button id="btnOpenSettings" class="btn-settings-header" title="시스템 환경 설정" aria-label="환경 설정">
           <i data-lucide="settings"></i>
@@ -885,10 +885,60 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260924_03"></script>
   <script>
-    // Initialize Lucide Icons
-    lucide.createIcons();
+    // 1. Monkey-patch localStorage to sync with backend DB automatically
+    const originalSetItem = localStorage.setItem;
+    const originalRemoveItem = localStorage.removeItem;
+    let syncTimeout = null;
+    function syncToBackend() {
+      if(syncTimeout) clearTimeout(syncTimeout);
+      syncTimeout = setTimeout(() => {
+        const dbPayload = {
+            js_investment_custom: localStorage.getItem('js_investment_custom') || null,
+            js_monthly_performance_custom: localStorage.getItem('js_monthly_performance_custom') || null,
+            js_deleted_snapshots: localStorage.getItem('js_deleted_snapshots') || null,
+            js_db_cleared: localStorage.getItem('js_db_cleared') || null
+        };
+        fetch('/api/save_db', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(dbPayload)
+        }).catch(e => console.error("DB Save failed:", e));
+      }, 500); // debounce 500ms
+    }
+
+    localStorage.setItem = function(key, value) {
+        originalSetItem.apply(this, arguments);
+        if (key.startsWith('js_')) syncToBackend();
+    };
+    
+    localStorage.removeItem = function(key) {
+        originalRemoveItem.apply(this, arguments);
+        if (key.startsWith('js_')) syncToBackend();
+    };
+
+    // 2. Load DB first, then load app.js
+    fetch('/api/load_db')
+      .then(res => res.json())
+      .then(data => {
+        if (data && Object.keys(data).length > 0) {
+          if (data.js_investment_custom) originalSetItem.call(localStorage, 'js_investment_custom', data.js_investment_custom);
+          if (data.js_monthly_performance_custom) originalSetItem.call(localStorage, 'js_monthly_performance_custom', data.js_monthly_performance_custom);
+          if (data.js_deleted_snapshots) originalSetItem.call(localStorage, 'js_deleted_snapshots', data.js_deleted_snapshots);
+          if (data.js_db_cleared) originalSetItem.call(localStorage, 'js_db_cleared', data.js_db_cleared);
+        }
+      })
+      .catch(e => console.warn('Local DB error:', e))
+      .finally(() => {
+        const script = document.createElement('script');
+        script.src = "app.js?v=" + new Date().getTime();
+        document.body.appendChild(script);
+        
+        script.onload = () => {
+            // Initialize Lucide Icons after app.js loads
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        };
+      });
   </script>
 </body>
 </html>
